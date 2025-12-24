@@ -1,0 +1,474 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		ACC1DF2D2EF58D6F00DD428D /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = ACC1DF2C2EF58D6F00DD428D /* FirebaseAuth */; };
+		ACC1DF2F2EF58D6F00DD428D /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = ACC1DF2E2EF58D6F00DD428D /* FirebaseFirestore */; };
+		ACC1DF312EF58D6F00DD428D /* FirebaseMessaging in Frameworks */ = {isa = PBXBuildFile; productRef = ACC1DF302EF58D6F00DD428D /* FirebaseMessaging */; };
+		ACC1DF332EF58D6F00DD428D /* FirebaseStorage in Frameworks */ = {isa = PBXBuildFile; productRef = ACC1DF322EF58D6F00DD428D /* FirebaseStorage */; };
+		ACC1DFA32EF7DEC500DD428D /* RevenueCat in Frameworks */ = {isa = PBXBuildFile; productRef = ACC1DFA22EF7DEC500DD428D /* RevenueCat */; };
+		ACC1DFAC2EF7E09900DD428D /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = ACC1DFAB2EF7E09900DD428D /* GoogleSignIn */; };
+		ACC1DFAE2EF7E09900DD428D /* GoogleSignInSwift in Frameworks */ = {isa = PBXBuildFile; productRef = ACC1DFAD2EF7E09900DD428D /* GoogleSignInSwift */; };
+		ACC1DFBF2EF8104D00DD428D /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = ACC1DFBE2EF8104D00DD428D /* GoogleService-Info.plist */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		ACC1DF1B2EF588F500DD428D /* VoiceMatchApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VoiceMatchApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		ACC1DFBE2EF8104D00DD428D /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		ACC1DFB22EF7E47F00DD428D /* Exceptions for "VoiceMatchApp" folder in "VoiceMatchApp" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = ACC1DF1A2EF588F500DD428D /* VoiceMatchApp */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		ACC1DF1D2EF588F500DD428D /* VoiceMatchApp */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				ACC1DFB22EF7E47F00DD428D /* Exceptions for "VoiceMatchApp" folder in "VoiceMatchApp" target */,
+			);
+			path = VoiceMatchApp;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		ACC1DF182EF588F500DD428D /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				ACC1DF312EF58D6F00DD428D /* FirebaseMessaging in Frameworks */,
+				ACC1DF332EF58D6F00DD428D /* FirebaseStorage in Frameworks */,
+				ACC1DFAE2EF7E09900DD428D /* GoogleSignInSwift in Frameworks */,
+				ACC1DFA32EF7DEC500DD428D /* RevenueCat in Frameworks */,
+				ACC1DF2D2EF58D6F00DD428D /* FirebaseAuth in Frameworks */,
+				ACC1DF2F2EF58D6F00DD428D /* FirebaseFirestore in Frameworks */,
+				ACC1DFAC2EF7E09900DD428D /* GoogleSignIn in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		ACC1DF122EF588F500DD428D = {
+			isa = PBXGroup;
+			children = (
+				ACC1DF1D2EF588F500DD428D /* VoiceMatchApp */,
+				ACC1DF4C2EF5950500DD428D /* Frameworks */,
+				ACC1DF1C2EF588F500DD428D /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		ACC1DF1C2EF588F500DD428D /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				ACC1DF1B2EF588F500DD428D /* VoiceMatchApp.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		ACC1DF4C2EF5950500DD428D /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				ACC1DFBE2EF8104D00DD428D /* GoogleService-Info.plist */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		ACC1DF1A2EF588F500DD428D /* VoiceMatchApp */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = ACC1DF262EF588F700DD428D /* Build configuration list for PBXNativeTarget "VoiceMatchApp" */;
+			buildPhases = (
+				ACC1DF172EF588F500DD428D /* Sources */,
+				ACC1DF182EF588F500DD428D /* Frameworks */,
+				ACC1DF192EF588F500DD428D /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				ACC1DF1D2EF588F500DD428D /* VoiceMatchApp */,
+			);
+			name = VoiceMatchApp;
+			packageProductDependencies = (
+				ACC1DF2C2EF58D6F00DD428D /* FirebaseAuth */,
+				ACC1DF2E2EF58D6F00DD428D /* FirebaseFirestore */,
+				ACC1DF302EF58D6F00DD428D /* FirebaseMessaging */,
+				ACC1DF322EF58D6F00DD428D /* FirebaseStorage */,
+				ACC1DFA22EF7DEC500DD428D /* RevenueCat */,
+				ACC1DFAB2EF7E09900DD428D /* GoogleSignIn */,
+				ACC1DFAD2EF7E09900DD428D /* GoogleSignInSwift */,
+			);
+			productName = VoiceMatchApp;
+			productReference = ACC1DF1B2EF588F500DD428D /* VoiceMatchApp.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		ACC1DF132EF588F500DD428D /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2600;
+				LastUpgradeCheck = 2600;
+				TargetAttributes = {
+					ACC1DF1A2EF588F500DD428D = {
+						CreatedOnToolsVersion = 26.0.1;
+					};
+				};
+			};
+			buildConfigurationList = ACC1DF162EF588F500DD428D /* Build configuration list for PBXProject "VoiceMatchApp" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = ACC1DF122EF588F500DD428D;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				ACC1DF2B2EF58D6F00DD428D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
+				ACC1DFA12EF7DEC500DD428D /* XCRemoteSwiftPackageReference "purchases-ios" */,
+				ACC1DFAA2EF7E09900DD428D /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = ACC1DF1C2EF588F500DD428D /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				ACC1DF1A2EF588F500DD428D /* VoiceMatchApp */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		ACC1DF192EF588F500DD428D /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				ACC1DFBF2EF8104D00DD428D /* GoogleService-Info.plist in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		ACC1DF172EF588F500DD428D /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		ACC1DF242EF588F700DD428D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = WM7939G226;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		ACC1DF252EF588F700DD428D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = WM7939G226;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		ACC1DF272EF588F700DD428D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = VoiceMatchApp/VoiceMatchApp.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = VoiceMatchApp/Info.plist;
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "近くのユーザーとマッチングするために位置情報を使用します。";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "ボイスメッセージを録音するためにマイクを使用します。";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.imai.VoiceMatchApp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		ACC1DF282EF588F700DD428D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = VoiceMatchApp/VoiceMatchApp.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = VoiceMatchApp/Info.plist;
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "近くのユーザーとマッチングするために位置情報を使用します。";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "ボイスメッセージを録音するためにマイクを使用します。";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.imai.VoiceMatchApp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		ACC1DF162EF588F500DD428D /* Build configuration list for PBXProject "VoiceMatchApp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				ACC1DF242EF588F700DD428D /* Debug */,
+				ACC1DF252EF588F700DD428D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		ACC1DF262EF588F700DD428D /* Build configuration list for PBXNativeTarget "VoiceMatchApp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				ACC1DF272EF588F700DD428D /* Debug */,
+				ACC1DF282EF588F700DD428D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		ACC1DF2B2EF58D6F00DD428D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/firebase/firebase-ios-sdk.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 12.7.0;
+			};
+		};
+		ACC1DFA12EF7DEC500DD428D /* XCRemoteSwiftPackageReference "purchases-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/RevenueCat/purchases-ios";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 5.51.0;
+			};
+		};
+		ACC1DFAA2EF7E09900DD428D /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/google/GoogleSignIn-iOS";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 9.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		ACC1DF2C2EF58D6F00DD428D /* FirebaseAuth */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = ACC1DF2B2EF58D6F00DD428D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAuth;
+		};
+		ACC1DF2E2EF58D6F00DD428D /* FirebaseFirestore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = ACC1DF2B2EF58D6F00DD428D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseFirestore;
+		};
+		ACC1DF302EF58D6F00DD428D /* FirebaseMessaging */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = ACC1DF2B2EF58D6F00DD428D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseMessaging;
+		};
+		ACC1DF322EF58D6F00DD428D /* FirebaseStorage */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = ACC1DF2B2EF58D6F00DD428D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseStorage;
+		};
+		ACC1DFA22EF7DEC500DD428D /* RevenueCat */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = ACC1DFA12EF7DEC500DD428D /* XCRemoteSwiftPackageReference "purchases-ios" */;
+			productName = RevenueCat;
+		};
+		ACC1DFAB2EF7E09900DD428D /* GoogleSignIn */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = ACC1DFAA2EF7E09900DD428D /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignIn;
+		};
+		ACC1DFAD2EF7E09900DD428D /* GoogleSignInSwift */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = ACC1DFAA2EF7E09900DD428D /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignInSwift;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = ACC1DF132EF588F500DD428D /* Project object */;
+}
