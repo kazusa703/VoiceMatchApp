@@ -11,7 +11,7 @@ struct ProfileView: View {
     @State private var showSettings = false
     @State private var showPaywall = false
     
-    @StateObject var audioPlayer = AudioPlayer()
+    @StateObject private var audioPlayer = AudioPlayer()
     
     var body: some View {
         NavigationView {
@@ -20,7 +20,6 @@ struct ProfileView: View {
                     VStack(spacing: 24) {
                         // 1. プロフィールトップ
                         VStack(spacing: 16) {
-                            // アバター（グラデーション枠付き）
                             UserAvatarView(imageURL: user.profileImageURL, size: 100)
                                 .padding(4)
                                 .background(LinearGradient.instaGradient)
@@ -42,23 +41,29 @@ struct ProfileView: View {
                                 }
                                 
                                 VStack(spacing: 4) {
-                                    // 残り回数の計算
-                                    let limit = user.isProUser ? 50 : 5
-                                    let remaining = max(0, limit - user.matchCountCurrentCycle)
-                                    Text("\(remaining)")
-                                        .font(.title3)
-                                        .fontWeight(.bold)
-                                        .foregroundColor(remaining == 0 ? .red : .primary)
+                                    if purchaseManager.isPro || user.isProUser {
+                                        Text("∞")
+                                            .font(.title3)
+                                            .fontWeight(.bold)
+                                            .foregroundColor(.brandPurple)
+                                    } else {
+                                        let limit = 5
+                                        let remaining = max(0, limit - user.matchCountCurrentCycle)
+                                        Text("\(remaining)")
+                                            .font(.title3)
+                                            .fontWeight(.bold)
+                                            .foregroundColor(remaining == 0 ? .red : .primary)
+                                    }
                                     Text("残り回数")
                                         .font(.caption)
                                         .foregroundColor(.secondary)
                                 }
                                 
                                 VStack(spacing: 4) {
-                                    Text(purchaseManager.isPro ? "Pro" : "Free")
+                                    Text((purchaseManager.isPro || user.isProUser) ? "Pro" : "Free")
                                         .font(.title3)
                                         .fontWeight(.bold)
-                                        .foregroundColor(purchaseManager.isPro ? .brandPurple : .primary)
+                                        .foregroundColor((purchaseManager.isPro || user.isProUser) ? .brandPurple : .primary)
                                     Text("プラン")
                                         .font(.caption)
                                         .foregroundColor(.secondary)
@@ -68,7 +73,7 @@ struct ProfileView: View {
                         .padding(.top)
                         
                         // 2. Proアップグレードバナー
-                        if !purchaseManager.isPro {
+                        if !purchaseManager.isPro && !user.isProUser {
                             Button(action: { showPaywall = true }) {
                                 HStack {
                                     Image(systemName: "crown.fill")
@@ -106,28 +111,33 @@ struct ProfileView: View {
                         .padding(.horizontal)
                         
                         // 4. 自己紹介ボイスボタン
-                        if let audioURL = user.bioAudioURL, let url = URL(string: audioURL) {
-                            Button(action: {
-                                if audioPlayer.isPlaying && audioPlayer.currentlyPlayingURL == audioURL {
-                                    audioPlayer.stopPlayback()
-                                } else {
-                                    audioPlayer.startPlayback(url: url)
-                                }
-                            }) {
-                                HStack {
-                                    Image(systemName: "mic.fill")
-                                        .foregroundColor(.brandPurple)
-                                    Text("登録済みの自己紹介ボイス")
-                                        .foregroundColor(.brandPurple)
-                                    Spacer()
-                                    if audioPlayer.isPlaying {
-                                        Image(systemName: "waveform")
-                                            .foregroundColor(.brandPurple)
+                        if let audioURL = user.bioAudioURL, !audioURL.isEmpty {
+                            VStack {
+                                Button(action: {
+                                    if audioPlayer.isPlaying && audioPlayer.currentlyPlayingURL == audioURL {
+                                        audioPlayer.stopPlayback()
+                                    } else if let url = URL(string: audioURL) {
+                                        audioPlayer.startPlayback(url: url)
                                     }
+                                }) {
+                                    HStack {
+                                        Image(systemName: (audioPlayer.isPlaying && audioPlayer.currentlyPlayingURL == audioURL) ? "stop.fill" : "mic.fill")
+                                            .foregroundColor(.brandPurple)
+                                        
+                                        Text(audioPlayer.isPlaying && audioPlayer.currentlyPlayingURL == audioURL ? "再生を停止する" : "登録済みの自己紹介ボイス")
+                                            .fontWeight(.medium)
+                                            .foregroundColor(.brandPurple)
+                                        
+                                        Spacer()
+                                        
+                                        if audioPlayer.isLoading && audioPlayer.currentlyPlayingURL == audioURL {
+                                            ProgressView().scaleEffect(0.8)
+                                        }
+                                    }
+                                    .padding()
+                                    .background(Color.brandPurple.opacity(0.05))
+                                    .cornerRadius(15)
                                 }
-                                .padding()
-                                .background(Color.brandPurple.opacity(0.05))
-                                .cornerRadius(15)
                             }
                             .padding(.horizontal)
                         }
@@ -147,7 +157,7 @@ struct ProfileView: View {
                                 Divider().padding(.leading, 50)
                                 DetailRow(icon: "person", title: "年齢", value: user.profileItems["age"])
                             }
-                            .background(Color.white) // 背景白
+                            .background(Color.white)
                             .padding(.horizontal)
                         }
                         
@@ -167,7 +177,11 @@ struct ProfileView: View {
                     }
                 }
             }
-            .sheet(isPresented: $showEditProfile) { ProfileEditView() }
+            .sheet(isPresented: $showEditProfile) {
+                if let user = userService.currentUserProfile {
+                    ProfileEditView(user: user)
+                }
+            }
             .sheet(isPresented: $showSettings) { SettingsView() }
             .sheet(isPresented: $showPaywall) { PaywallView() }
             .refreshable {
@@ -179,7 +193,6 @@ struct ProfileView: View {
     }
 }
 
-// 詳細データの行デザイン
 struct DetailRow: View {
     let icon: String
     let title: String

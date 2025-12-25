@@ -69,7 +69,6 @@ class AuthService: ObservableObject {
               let appleIDToken = appleCredential.identityToken,
               let idTokenString = String(data: appleIDToken, encoding: .utf8) else { return }
         
-        // ★修正箇所: credential ではなく appleCredential を使用
         let firebaseCredential = OAuthProvider.appleCredential(
             withIDToken: idTokenString,
             rawNonce: nonce,

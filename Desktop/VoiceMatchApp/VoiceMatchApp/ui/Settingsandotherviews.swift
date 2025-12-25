@@ -114,74 +114,6 @@ struct SettingsView: View {
     }
 }
 
-// MARK: - PaywallView
-struct PaywallView: View {
-    @Environment(\.dismiss) var dismiss
-    @EnvironmentObject var purchaseManager: PurchaseManager
-    
-    var body: some View {
-        VStack(spacing: 20) {
-            HStack {
-                Spacer()
-                Button(action: { dismiss() }) {
-                    Image(systemName: "xmark").foregroundColor(.primary).padding()
-                }
-            }
-            
-            Spacer()
-            
-            Image(systemName: "crown.fill").font(.system(size: 80)).foregroundColor(.yellow)
-            
-            Text("Proプランにアップグレード").font(.title).fontWeight(.bold)
-            
-            VStack(alignment: .leading, spacing: 15) {
-                FeatureRow(icon: "infinity", text: "アプローチ送信し放題")
-                FeatureRow(icon: "bolt.fill", text: "12時間の待機時間なし")
-                FeatureRow(icon: "star.fill", text: "プロフィールの優先表示")
-                FeatureRow(icon: "mic.fill", text: "高音質ボイスメッセージ")
-            }
-            .padding()
-            .background(Color.gray.opacity(0.1))
-            .cornerRadius(15)
-            .padding(.horizontal)
-            
-            Spacer()
-            
-            Button(action: {
-                purchaseManager.purchasePro()
-                dismiss()
-            }) {
-                VStack(spacing: 4) {
-                    Text("Proプランに登録").fontWeight(.bold)
-                    Text("$9.99 / 月").font(.caption)
-                }
-                .foregroundColor(.white)
-                .frame(maxWidth: .infinity)
-                .padding()
-                .background(LinearGradient.instaGradient)
-                .cornerRadius(30)
-            }
-            .padding(.horizontal)
-            
-            Button("購入を復元する") { purchaseManager.restorePurchases() }
-                .font(.caption).foregroundColor(.gray)
-            
-            Spacer()
-        }
-    }
-}
-
-struct FeatureRow: View {
-    let icon: String
-    let text: String
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: icon).foregroundColor(.brandPurple).frame(width: 24)
-            Text(text)
-        }
-    }
-}
-
 // MARK: - SkippedUsersListView
 struct SkippedUsersListView: View {
     @EnvironmentObject var userService: UserService
@@ -334,59 +266,6 @@ struct AdminReportListView: View {
             guard let docs = snapshot?.documents else { return }
             self.reports = docs.compactMap { try? $0.data(as: Report.self) }
         }
-    }
-}
-
-// MARK: - UserProfileDetailView
-struct UserProfileDetailView: View {
-    let user: UserProfile
-    @StateObject private var audioPlayer = AudioPlayer()
-    
-    var body: some View {
-        ScrollView {
-            VStack(spacing: 20) {
-                UserAvatarView(imageURL: user.profileImageURL, size: 150).padding(.top)
-                Text(user.username).font(.title).fontWeight(.bold)
-                
-                if !user.bio.isEmpty {
-                    Text(user.bio).multilineTextAlignment(.center).padding()
-                }
-                
-                if let audioURL = user.bioAudioURL, let url = URL(string: audioURL) {
-                    Button(action: {
-                        if audioPlayer.isPlaying { audioPlayer.stopPlayback() }
-                        else { audioPlayer.startPlayback(url: url) }
-                    }) {
-                        HStack {
-                            Image(systemName: audioPlayer.isPlaying ? "stop.fill" : "play.fill")
-                            Text("自己紹介ボイスを再生")
-                        }
-                        .padding().background(Color.brandPurple.opacity(0.1)).cornerRadius(20)
-                    }
-                }
-                
-                Divider()
-                
-                VStack(alignment: .leading, spacing: 15) {
-                    Text("詳細データ").font(.headline)
-                    ForEach(ProfileConstants.items, id: \.key) { item in
-                        if user.privacySettings[item.key] ?? true,
-                           let value = user.profileItems[item.key], !value.isEmpty {
-                            HStack {
-                                Text(item.displayName).foregroundColor(.secondary).frame(width: 100, alignment: .leading)
-                                Text(value).fontWeight(.medium)
-                            }
-                            Divider()
-                        }
-                    }
-                }
-                .padding()
-                .background(Color.white).cornerRadius(10)
-                .padding()
-            }
-        }
-        .navigationTitle(user.username)
-        .background(Color(uiColor: .systemGroupedBackground))
     }
 }
 

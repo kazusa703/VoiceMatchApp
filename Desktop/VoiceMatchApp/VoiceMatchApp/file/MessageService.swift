@@ -4,66 +4,35 @@ import FirebaseStorage
 import Combine
 import FirebaseAuth
 
+// メッセージセクションの列挙型
+enum MessageSection {
+    case matches
+    case received
+    case sent
+}
+
 class MessageService: ObservableObject {
-    // マッチ成立後のチャット用
     @Published var matches: [UserMatch] = []
     @Published var currentMessages: [VoiceMessage] = []
-    
-    // マッチ前のアプローチ受信箱用
     @Published var receivedApproaches: [Message] = []
+    @Published var sentApproaches: [Message] = []
+    @Published var selectedSection: MessageSection = .matches
     
     private let db = Firestore.firestore()
     private let storage = Storage.storage()
+    private var messagesListener: ListenerRegistration?
+    private var currentMatchID: String?
 
-    // MARK: - 【既存】マッチ後のチャット機能
+    // MARK: - チャット機能
     
-    // ★修正: 再生回数をインクリメント（+1）するように変更
-    func incrementListenCount(messageID: String, matchID: String) {
-        let docRef = db.collection("matches").document(matchID).collection("messages").document(messageID)
-        
-        db.runTransaction({ (transaction, errorPointer) -> Any? in
-            let messageDoc: DocumentSnapshot
-            do {
-                try messageDoc = transaction.getDocument(docRef)
-            } catch let fetchError as NSError {
-                errorPointer?.pointee = fetchError
-                return nil
-            }
-            
-            let currentCount = messageDoc.data()?["listenCount"] as? Int ?? 0
-            transaction.updateData(["listenCount": currentCount + 1], forDocument: docRef)
-            return nil
-        }) { _, error in
-            if let error = error {
-                print("再生回数更新エラー: \(error)")
-            }
-        }
-    }
-
-    func fetchMatches(for uid: String, blockedUserIDs: [String] = []) async {
-        print("🔥 DEBUG: fetchMatches 開始 - UID: \(uid)")
-        do {
-            let s1 = try await db.collection("matches").whereField("user1ID", isEqualTo: uid).getDocuments()
-            let s2 = try await db.collection("matches").whereField("user2ID", isEqualTo: uid).getDocuments()
-            let m1 = s1.documents.compactMap { try? $0.data(as: UserMatch.self) }
-            let m2 = s2.documents.compactMap { try? $0.data(as: UserMatch.self) }
-            
-            let allMatches = (m1 + m2).sorted(by: { $0.lastMessageDate > $1.lastMessageDate })
-            
-            await MainActor.run {
-                self.matches = allMatches.filter { match in
-                    let partnerID = (match.user1ID == uid) ? match.user2ID : match.user1ID
-                    return !blockedUserIDs.contains(partnerID)
-                }
-                print("🔥 DEBUG: マッチング取得完了 - 計 \(self.matches.count) 件")
-            }
-        } catch {
-            print("🔥 DEBUG: ❌ fetchMatches エラー: \(error)")
-        }
-    }
-
     func listenToMessages(for matchID: String) {
-        db.collection("matches").document(matchID).collection("messages")
+        if currentMatchID == matchID { return }
+        
+        messagesListener?.remove()
+        currentMatchID = matchID
+        self.currentMessages = []
+        
+        messagesListener = db.collection("matches").document(matchID).collection("messages")
             .order(by: "timestamp", descending: false)
             .addSnapshotListener { snapshot, _ in
                 guard let documents = snapshot?.documents else { return }
@@ -73,155 +42,174 @@ class MessageService: ObservableObject {
             }
     }
     
-    // ★修正: expiresAt のセットを削除し、listenCountを初期化
+    func clearMessages() {
+        messagesListener?.remove()
+        messagesListener = nil
+        currentMatchID = nil
+        currentMessages = []
+    }
+    
+    func incrementListenCount(messageID: String, matchID: String) {
+        let docRef = db.collection("matches").document(matchID).collection("messages").document(messageID)
+        db.runTransaction({ (transaction, _ ) -> Any? in
+            let _ = try? transaction.getDocument(docRef)
+            transaction.updateData(["listenCount": FieldValue.increment(Int64(1))], forDocument: docRef)
+            return nil
+        }) { _, _ in }
+    }
+
+    // MARK: - マッチ一覧取得
+    
+    func fetchMatches(for uid: String, blockedUserIDs: [String] = []) async {
+        do {
+            let q1 = db.collection("matches").whereField("user1ID", isEqualTo: uid)
+            let q2 = db.collection("matches").whereField("user2ID", isEqualTo: uid)
+            
+            let (s1, s2) = try await (q1.getDocuments(), q2.getDocuments())
+            let m1 = s1.documents.compactMap { try? $0.data(as: UserMatch.self) }
+            let m2 = s2.documents.compactMap { try? $0.data(as: UserMatch.self) }
+            
+            let all = (m1 + m2).sorted(by: { $0.lastMessageDate > $1.lastMessageDate })
+            
+            await MainActor.run {
+                self.matches = all.filter { match in
+                    let partnerID = match.user1ID == uid ? match.user2ID : match.user1ID
+                    return !blockedUserIDs.contains(partnerID)
+                }
+            }
+        } catch { print("FetchMatches Error: \(error)") }
+    }
+    
+    // MARK: - チャット送信
+    
     func sendVoiceMessage(senderID: String, receiverID: String, audioData: Data, duration: Double, effectName: String?, waveformSamples: [Float]) async throws {
         let matchID = [senderID, receiverID].sorted().joined(separator: "_")
         let fileName = "\(UUID().uuidString).m4a"
-        let storageRef = storage.reference().child("voices/\(matchID)/\(fileName)")
+        let ref = storage.reference().child("voices/\(matchID)/\(fileName)")
         
-        let metadata = StorageMetadata()
-        metadata.contentType = "audio/m4a"
+        let metadata = StorageMetadata(); metadata.contentType = "audio/m4a"
+        let _ = try await ref.putDataAsync(audioData, metadata: metadata)
+        let url = try await ref.downloadURL()
         
-        let _ = try await storageRef.putDataAsync(audioData, metadata: metadata)
-        let downloadURL = try await storageRef.downloadURL()
-        
-        let messageData: [String: Any] = [
+        let msg: [String: Any] = [
             "senderID": senderID,
-            "audioURL": downloadURL.absoluteString,
+            "audioURL": url.absoluteString,
             "duration": duration,
             "timestamp": FieldValue.serverTimestamp(),
-            "listenCount": 0, // 初期値は0
-            "effectUsed": effectName ?? "地声",
+            "listenCount": 0,
+            "effectUsed": effectName ?? "Normal",
             "waveformSamples": waveformSamples
         ]
         
         let matchRef = db.collection("matches").document(matchID)
-        
         try await matchRef.setData([
             "user1ID": senderID,
             "user2ID": receiverID,
-            "lastMessageDate": FieldValue.serverTimestamp(),
-            "matchDate": FieldValue.serverTimestamp()
+            "lastMessageDate": FieldValue.serverTimestamp()
         ], merge: true)
         
-        try await matchRef.collection("messages").addDocument(data: messageData)
+        try await matchRef.collection("messages").addDocument(data: msg)
     }
+
+    // MARK: - アプローチ送信
     
-    // MARK: - マッチ前のアプローチ機能 (Discovery)
-    
-    func sendApproachVoiceMessage(to receiverID: String, audioURL: URL, duration: TimeInterval) async throws {
+    func sendApproachVoiceMessage(to receiverID: String, audioURL: URL, duration: TimeInterval, userService: UserService) async throws {
+        guard userService.canSendApproach() else {
+            throw NSError(domain: "App", code: 403, userInfo: [NSLocalizedDescriptionKey: "本日の送信上限に達しました"])
+        }
+        
         guard let currentUID = Auth.auth().currentUser?.uid else { return }
         
-        print("🔥 DEBUG: アプローチ送信処理開始")
+        // 既にマッチ済みか確認
+        let matchID = [currentUID, receiverID].sorted().joined(separator: "_")
+        let matchDoc = try await db.collection("matches").document(matchID).getDocument()
         
+        if matchDoc.exists {
+            let data = try Data(contentsOf: audioURL)
+            try await sendVoiceMessage(senderID: currentUID, receiverID: receiverID, audioData: data, duration: duration, effectName: "再アプローチ", waveformSamples: [])
+            return
+        }
+        
+        // 通常アプローチ
         let filename = "approaches/\(UUID().uuidString).m4a"
-        let storageRef = storage.reference().child(filename)
+        let ref = storage.reference().child(filename)
         let data = try Data(contentsOf: audioURL)
-        
-        let metadata = StorageMetadata()
-        metadata.contentType = "audio/m4a"
-        
-        let _ = try await storageRef.putDataAsync(data, metadata: metadata)
-        let downloadURL = try await storageRef.downloadURL()
+        let _ = try await ref.putDataAsync(data, metadata: nil)
+        let url = try await ref.downloadURL()
         
         let approachData: [String: Any] = [
             "senderID": currentUID,
             "receiverID": receiverID,
-            "audioURL": downloadURL.absoluteString,
+            "audioURL": url.absoluteString,
             "duration": duration,
             "createdAt": FieldValue.serverTimestamp(),
             "isRead": false,
             "isMatched": false
         ]
-        
         try await db.collection("messages").addDocument(data: approachData)
-        print("🔥 DEBUG: ✅ アプローチ送信完了成功！ 宛先: \(receiverID)")
+        try await userService.incrementApproachCount()
     }
     
-    func fetchReceivedApproaches() {
-        guard let currentUID = Auth.auth().currentUser?.uid else { return }
-        
-        print("🔥 DEBUG: アプローチ受信監視を開始します")
-        
-        // isMatched == false のものだけを取得することで、承認/拒否したものは自動で消える
-        db.collection("messages")
-            .whereField("receiverID", isEqualTo: currentUID)
-            .whereField("isMatched", isEqualTo: false)
-            .order(by: "createdAt", descending: true)
-            .addSnapshotListener { snapshot, error in
-                if let error = error {
-                    print("🔥 DEBUG: ❌ アプローチ受信エラー: \(error.localizedDescription)")
-                    return
-                }
-                guard let documents = snapshot?.documents else { return }
-                
-                print("🔥 DEBUG: 📩 【\(documents.count)件】 のアプローチを受信しました")
-                self.receivedApproaches = documents.compactMap { try? $0.data(as: Message.self) }
-            }
-    }
+    // MARK: - アプローチ承認・拒否
     
-    // ★追加: アプローチを見送る（拒否する）
-    func declineApproach(message: Message) async {
-        guard let messageID = message.id else { return }
-        
-        // isMatchedをtrueにするが、マッチングテーブルには追加しない
-        // これにより、fetchReceivedApproachesのクエリ条件(isMatched: false)から外れ、リストから消える
-        do {
-            try await db.collection("messages").document(messageID).updateData([
-                "isMatched": true
-            ])
-            print("🔥 DEBUG: アプローチを見送りました (ID: \(messageID))")
-        } catch {
-            print("❌ 見送り処理エラー: \(error)")
-        }
-    }
-    
-    // マッチ承認
+    /// アプローチを承認してマッチを作成
     func acceptApproach(message: Message) async throws -> UserMatch? {
-        print("🔥 DEBUG: マッチ承認処理開始 ID: \(message.id ?? "")")
-        
         guard let messageID = message.id else { return nil }
+        guard let currentUID = Auth.auth().currentUser?.uid else { return nil }
         
-        // 1. アプローチ済みフラグを立てる (これでアプローチリストから消える)
-        try await db.collection("messages").document(messageID).updateData([
-            "isMatched": true
-        ])
+        // メッセージをマッチ済みに更新
+        try await db.collection("messages").document(messageID).updateData(["isMatched": true])
         
-        // 2. マッチング情報の作成
-        let matchID = [message.senderID, message.receiverID].sorted().joined(separator: "_")
-        let matchRef = db.collection("matches").document(matchID)
-        
-        // チャットルームを作成
+        // マッチを作成
+        let matchID = [message.senderID, currentUID].sorted().joined(separator: "_")
         let matchData: [String: Any] = [
             "user1ID": message.senderID,
-            "user2ID": message.receiverID,
-            "lastMessageDate": FieldValue.serverTimestamp(),
-            "matchDate": FieldValue.serverTimestamp()
+            "user2ID": currentUID,
+            "matchDate": FieldValue.serverTimestamp(),
+            "lastMessageDate": FieldValue.serverTimestamp()
         ]
-        try await matchRef.setData(matchData, merge: true)
         
-        // 3. アプローチボイスをチャットにコピー
-        // ★修正: expiresAt を削除し、listenCount: 0 を設定
-        let firstMessageData: [String: Any] = [
-            "senderID": message.senderID,
-            "audioURL": message.audioURL,
-            "duration": message.duration,
-            "timestamp": FieldValue.serverTimestamp(),
-            "listenCount": 0,
-            "effectUsed": "アプローチ",
-            "waveformSamples": []
-        ]
-        try await matchRef.collection("messages").addDocument(data: firstMessageData)
+        try await db.collection("matches").document(matchID).setData(matchData)
         
-        print("🔥 DEBUG: マッチ承認完了＆チャットルーム作成済み")
-        
-        // UserMatchオブジェクトを作成して返す
-        return UserMatch(
+        // UserMatchを返す
+        let match = UserMatch(
             id: matchID,
             user1ID: message.senderID,
-            user2ID: message.receiverID,
+            user2ID: currentUID,
             lastMessageDate: Date(),
             matchDate: Date()
         )
+        
+        return match
+    }
+    
+    /// アプローチを拒否（削除）
+    func declineApproach(message: Message) async {
+        guard let messageID = message.id else { return }
+        try? await db.collection("messages").document(messageID).delete()
+    }
+    
+    // MARK: - 受信/送信アプローチの取得
+    
+    func fetchReceivedApproaches() {
+        guard let uid = Auth.auth().currentUser?.uid else { return }
+        db.collection("messages")
+            .whereField("receiverID", isEqualTo: uid)
+            .whereField("isMatched", isEqualTo: false)
+            .addSnapshotListener { s, _ in
+                guard let docs = s?.documents else { return }
+                self.receivedApproaches = docs.compactMap { try? $0.data(as: Message.self) }
+            }
+    }
+    
+    func fetchSentApproaches() {
+        guard let uid = Auth.auth().currentUser?.uid else { return }
+        db.collection("messages")
+            .whereField("senderID", isEqualTo: uid)
+            .whereField("isMatched", isEqualTo: false)
+            .addSnapshotListener { s, _ in
+                guard let docs = s?.documents else { return }
+                self.sentApproaches = docs.compactMap { try? $0.data(as: Message.self) }
+            }
     }
 }

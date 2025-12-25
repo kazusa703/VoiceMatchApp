@@ -4,31 +4,29 @@ struct MessageListView: View {
     @EnvironmentObject var messageService: MessageService
     @EnvironmentObject var userService: UserService
     
-    @State private var selectedTab = 0
-    
-    // ★修正: 重複を除去し、同じ人からのアプローチを1つにまとめる
+    // 重複を除去し、同じ人からのアプローチを1つにまとめる
     var uniqueApproaches: [Message] {
-        // senderIDでグループ化
         let grouped = Dictionary(grouping: messageService.receivedApproaches, by: { $0.senderID })
-        
-        // 各グループから最新のメッセージを1つだけ抽出
         return grouped.values.compactMap { messages in
             messages.sorted(by: { $0.createdAt > $1.createdAt }).first
-        }.sorted(by: { $0.createdAt > $1.createdAt }) // 全体を日付順に並び替え
+        }.sorted(by: { $0.createdAt > $1.createdAt })
     }
     
     var body: some View {
         NavigationView {
             VStack {
-                Picker("表示", selection: $selectedTab) {
-                    Text("届いたアプローチ").tag(0)
-                    Text("マッチ中").tag(1)
+                // サブタブ切り替え (Enum使用)
+                Picker("表示", selection: $messageService.selectedSection) {
+                    Text("マッチ中").tag(MessageSection.matches)
+                    Text("届いた").tag(MessageSection.received)
+                    Text("送った").tag(MessageSection.sent)
                 }
                 .pickerStyle(.segmented)
                 .padding()
                 
-                if selectedTab == 0 {
-                    // --- アプローチ一覧 ---
+                // コンテンツの切り替え
+                switch messageService.selectedSection {
+                case .received:
                     if uniqueApproaches.isEmpty {
                         EmptyStateView(text: "まだアプローチは届いていません", icon: "tray")
                     } else {
@@ -41,8 +39,20 @@ struct MessageListView: View {
                         }
                         .listStyle(.plain)
                     }
-                } else {
-                    // --- マッチ中一覧 ---
+                    
+                case .sent:
+                    if messageService.sentApproaches.isEmpty {
+                        EmptyStateView(text: "まだアプローチを送っていません", icon: "paperplane")
+                    } else {
+                        List {
+                            ForEach(messageService.sentApproaches) { message in
+                                SentApproachRow(message: message)
+                            }
+                        }
+                        .listStyle(.plain)
+                    }
+                    
+                case .matches:
                     if messageService.matches.isEmpty {
                         EmptyStateView(text: "まだマッチした相手がいません", icon: "person.2.slash")
                     } else {
@@ -64,6 +74,7 @@ struct MessageListView: View {
             .navigationBarTitleDisplayMode(.inline)
             .onAppear {
                 messageService.fetchReceivedApproaches()
+                messageService.fetchSentApproaches()
                 if let uid = userService.currentUserProfile?.uid {
                     Task { await messageService.fetchMatches(for: uid) }
                 }
@@ -89,7 +100,7 @@ struct EmptyStateView: View {
     }
 }
 
-// アプローチ行のデザイン
+// アプローチ行
 struct ApproachRow: View {
     let message: Message
     @State private var senderProfile: UserProfile?
@@ -116,6 +127,34 @@ struct ApproachRow: View {
     }
 }
 
+// 送信済みアプローチ行
+struct SentApproachRow: View {
+    let message: Message
+    @State private var receiverProfile: UserProfile?
+    @EnvironmentObject var userService: UserService
+    
+    var body: some View {
+        HStack {
+            UserAvatarView(imageURL: receiverProfile?.profileImageURL, size: 50)
+            VStack(alignment: .leading) {
+                Text(receiverProfile?.username ?? "読み込み中...")
+                    .font(.headline)
+                Text("返信待ち...")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            Spacer()
+            Text(message.createdAt, style: .relative)
+                .font(.system(size: 10))
+                .foregroundColor(.gray)
+        }
+        .task {
+            try? receiverProfile = await userService.fetchOtherUserProfile(uid: message.receiverID)
+        }
+    }
+}
+
+// マッチ行
 struct MessageMatchRow: View {
     let match: UserMatch
     let currentUID: String

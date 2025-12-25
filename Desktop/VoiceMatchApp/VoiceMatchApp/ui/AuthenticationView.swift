@@ -2,7 +2,7 @@ import SwiftUI
 import FirebaseAuth
 import GoogleSignIn
 import GoogleSignInSwift
-import AuthenticationServices // ★追加
+import AuthenticationServices
 
 struct AuthenticationView: View {
     @EnvironmentObject var userService: UserService
@@ -24,7 +24,7 @@ struct AuthenticationView: View {
                     .multilineTextAlignment(.center)
                     .padding(.top)
                 
-                // --- メール・パスワード入力 (省略せず記述) ---
+                // メール・パスワード入力
                 VStack(spacing: 12) {
                     TextField("メールアドレス", text: $email)
                         .keyboardType(.emailAddress)
@@ -70,14 +70,14 @@ struct AuthenticationView: View {
                 
                 Divider().padding(.horizontal)
                 
-                // --- ソーシャルログイン ---
+                // ソーシャルログイン
                 
                 // 1. Google
                 GoogleSignInButton(action: handleGoogleSignIn)
                     .frame(height: 50)
                     .padding(.horizontal)
                 
-                // 2. ★追加: Appleでサインイン
+                // 2. Appleでサインイン
                 SignInWithAppleButton(
                     onRequest: { request in
                         let nonce = authService.startSignInWithAppleFlow()
@@ -91,7 +91,6 @@ struct AuthenticationView: View {
                                 Task {
                                     do {
                                         try await authService.signInWithApple(credential: appleIDCredential)
-                                        // ユーザー情報を作成/取得
                                         if let uid = Auth.auth().currentUser?.uid {
                                             try await userService.fetchOrCreateUserProfile(uid: uid)
                                         }
@@ -106,10 +105,10 @@ struct AuthenticationView: View {
                         }
                     }
                 )
-                .signInWithAppleButtonStyle(.black) // 黒背景
+                .signInWithAppleButtonStyle(.black)
                 .frame(height: 50)
                 .padding(.horizontal)
-                .cornerRadius(8) // 角丸を少しつける
+                .cornerRadius(8)
                 
                 Spacer()
             }

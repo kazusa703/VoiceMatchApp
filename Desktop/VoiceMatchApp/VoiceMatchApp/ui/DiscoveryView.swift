@@ -1,50 +1,56 @@
 import SwiftUI
-import AVFoundation
 import CoreLocation
 
 struct DiscoveryView: View {
     @EnvironmentObject var userService: UserService
     @EnvironmentObject var messageService: MessageService
-    // 課金状態確認用
     @EnvironmentObject var purchaseManager: PurchaseManager
     
     @StateObject var audioPlayer = AudioPlayer()
     
-    // 検索・絞り込みフィルター
     @State private var showFilter = false
+    @State private var showMatchAnimation = false
+    @State private var matchedPartnerName = ""
+    @State private var showDisplaySettings = false
+    
+    // フィルタリング用ステート
     @State private var filterConditions: [String: String] = [:]
     @State private var minCommonPoints = 0
     @State private var commonPointsMode = "以上"
-    
-    // ★追加: 距離フィルター用の状態変数 (初期値100.0)
     @State private var maxDistance: Double = 100.0
     
+    // 表示オプション
     @State private var showMatchedUsers = false
     @State private var showSkippedUsers = false
-    @State private var showDisplaySettings = false
     
     var filteredUsers: [UserProfile] {
-        guard let currentUser = userService.currentUserProfile else { return [] }
+        let users = userService.discoveryUsers
+        guard let currentUser = userService.currentUserProfile else { return users }
         
-        return userService.discoveryUsers.filter { user in
-            // 1. 表示オプションによるフィルタリング
-            if !showMatchedUsers && currentUser.matchedUserIDs.contains(user.uid) { return false }
-            if !showSkippedUsers && currentUser.skippedUserIDs.contains(user.uid) { return false }
+        return users.filter { user in
+            // ブロック関係
+            if currentUser.blockedUserIDs.contains(user.uid) || user.blockedUserIDs.contains(currentUser.uid) {
+                return false
+            }
             
-            // ★追加: 距離フィルタの適用
-            // maxDistance が 100 未満の場合のみ制限を適用（100は「制限なし」の扱い）
+            // 表示オプション
+            let isMatched = currentUser.matchedUserIDs.contains(user.uid)
+            if !showMatchedUsers && isMatched { return false }
+            
+            let isSkipped = currentUser.skippedUserIDs.contains(user.uid)
+            if !showSkippedUsers && isSkipped { return false }
+            
+            // 距離フィルター
             if maxDistance < 100 {
-                // 自分と相手の両方が位置情報を持っている場合のみ計算
                 if let myLoc = currentUser.location, let userLoc = user.location {
                     let distanceInKm = myLoc.distance(from: userLoc) / 1000
                     if distanceInKm > maxDistance { return false }
                 } else {
-                    // 位置情報が取得できていないユーザーは、距離指定時は非表示にする
                     return false
                 }
             }
             
-            // 2. 共通点数フィルタ (非公開設定を考慮した計算)
+            // 共通点フィルター
             let commonCount = calculateCommonPoints(user: user)
             if commonPointsMode == "ピッタリ" {
                 if commonCount != minCommonPoints { return false }
@@ -52,9 +58,11 @@ struct DiscoveryView: View {
                 if commonCount < minCommonPoints { return false }
             }
             
-            // 3. 必須項目一致フィルタ
-            for (key, value) in filterConditions {
-                if user.profileItems[key] != value { return false }
+            // 属性フィルター
+            for (key, requiredValue) in filterConditions {
+                guard let userValue = user.profileItems[key], userValue == requiredValue else {
+                    return false
+                }
             }
             
             return true
@@ -66,42 +74,59 @@ struct DiscoveryView: View {
             ZStack {
                 Color(uiColor: .systemGroupedBackground).ignoresSafeArea()
                 
-                if filteredUsers.isEmpty {
-                    VStack(spacing: 16) {
-                        Image(systemName: "magnifyingglass")
-                            .font(.system(size: 60))
-                            .foregroundColor(.gray)
-                        Text("条件に合うユーザーがいません")
-                            .font(.headline)
-                            .foregroundColor(.secondary)
-                        
-                        Button("条件をクリア") {
-                            filterConditions.removeAll()
-                            minCommonPoints = 0
-                            commonPointsMode = "以上"
-                            maxDistance = 100.0 // 距離条件もリセット
-                        }
-                        .foregroundColor(.brandPurple)
-                    }
-                } else {
-                    ScrollView {
-                        LazyVStack(spacing: 15) {
-                            ForEach(filteredUsers) { user in
-                                // 距離情報の計算
-                                let distanceInfo = calculateDistanceInfo(targetUser: user)
-                                
-                                UserDiscoveryCard(
-                                    user: user,
-                                    audioPlayer: audioPlayer,
-                                    commonPoints: calculateCommonPoints(user: user),
-                                    distanceText: distanceInfo,
-                                    onSkip: {
-                                        Task { await userService.skipUser(targetUID: user.uid) }
-                                    }
-                                )
+                VStack(spacing: 0) {
+                    // 位置情報アラート
+                    if maxDistance < 100 && userService.currentUserProfile?.location == nil {
+                        VStack(spacing: 8) {
+                            Text("距離で絞り込むには位置情報をオンにしてください")
+                                .font(.caption)
+                                .foregroundColor(.red)
+                            Button("設定を開く") {
+                                if let url = URL(string: UIApplication.openSettingsURLString) {
+                                    UIApplication.shared.open(url)
+                                }
                             }
+                            .font(.caption.bold())
                         }
                         .padding()
+                        .background(Color.white)
+                    }
+                    
+                    if filteredUsers.isEmpty {
+                        Spacer()
+                        VStack(spacing: 16) {
+                            Image(systemName: "magnifyingglass")
+                                .font(.system(size: 60))
+                                .foregroundColor(.gray)
+                            Text("条件に合うユーザーがいません")
+                                .font(.headline)
+                                .foregroundColor(.secondary)
+                            
+                            Button("条件をクリア") {
+                                filterConditions.removeAll()
+                                minCommonPoints = 0
+                                maxDistance = 100.0
+                            }
+                            .foregroundColor(.brandPurple)
+                        }
+                        Spacer()
+                    } else {
+                        ScrollView {
+                            LazyVStack(spacing: 15) {
+                                ForEach(filteredUsers) { user in
+                                    UserDiscoveryCard(
+                                        user: user,
+                                        audioPlayer: audioPlayer,
+                                        commonPoints: calculateCommonPoints(user: user),
+                                        distanceText: calculateDistanceInfo(targetUser: user),
+                                        onSkip: {
+                                            Task { await userService.skipUser(targetUID: user.uid) }
+                                        }
+                                    )
+                                }
+                            }
+                            .padding()
+                        }
                     }
                 }
             }
@@ -120,11 +145,7 @@ struct DiscoveryView: View {
                     }
                 }
             }
-            .sheet(isPresented: $showDisplaySettings) {
-                displaySettingsSheet
-            }
             .sheet(isPresented: $showFilter) {
-                // ★修正: maxDistanceを渡す
                 FilterView(
                     filterConditions: $filterConditions,
                     minCommonPoints: $minCommonPoints,
@@ -132,18 +153,34 @@ struct DiscoveryView: View {
                     maxDistance: $maxDistance
                 )
             }
+            .sheet(isPresented: $showDisplaySettings) {
+                displaySettingsSheet
+            }
+            .fullScreenCover(isPresented: $showMatchAnimation) {
+                MatchAnimationView(partnerName: matchedPartnerName, isPresented: $showMatchAnimation)
+            }
             .refreshable {
+                await userService.fetchUsersForDiscovery()
+            }
+            .task {
+                await syncProStatus()
                 await userService.fetchUsersForDiscovery()
             }
         }
     }
     
-    // 共通点の計算ロジック（相手の非公開設定を尊重）
-    func calculateCommonPoints(user: UserProfile) -> Int {
+    // Helper Methods
+    private func syncProStatus() async {
+        guard let user = userService.currentUserProfile else { return }
+        if purchaseManager.isPro != user.isProUser {
+            await userService.syncProStatus(isPro: purchaseManager.isPro)
+        }
+    }
+    
+    private func calculateCommonPoints(user: UserProfile) -> Int {
         guard let myProfile = userService.currentUserProfile else { return 0 }
         var count = 0
         for (key, myVal) in myProfile.profileItems {
-            // 相手がその項目を「公開」に設定している場合のみ、一致をカウントする
             let isPublic = user.privacySettings[key] ?? true
             if isPublic, let userVal = user.profileItems[key], !userVal.isEmpty, userVal == myVal {
                 count += 1
@@ -152,33 +189,19 @@ struct DiscoveryView: View {
         return count
     }
     
-    // 距離情報の計算ロジック
     private func calculateDistanceInfo(targetUser: UserProfile) -> String? {
-        guard let currentUser = userService.currentUserProfile else { return nil }
+        guard let currentUser = userService.currentUserProfile,
+              purchaseManager.isPro,
+              currentUser.isLocationPublic,
+              targetUser.isLocationPublic,
+              let myLoc = currentUser.location,
+              let targetLoc = targetUser.location else { return nil }
         
-        // 条件: 自分がProプラン && 自分と相手が位置情報を公開 && 両者の位置情報が存在
-        if purchaseManager.isPro,
-           currentUser.isLocationPublic,
-           targetUser.isLocationPublic,
-           let myLoc = currentUser.location,
-           let targetLoc = targetUser.location {
-            
-            return getRoughDistance(myLoc: myLoc, userLoc: targetLoc)
-        }
-        return nil
-    }
-    
-    // 距離を「大まかなエリア」に変換するヘルパー
-    private func getRoughDistance(myLoc: CLLocation?, userLoc: CLLocation?) -> String? {
-        guard let my = myLoc, let user = userLoc else { return nil }
-        let meters = my.distance(from: user)
-        let km = meters / 1000
-        
-        if km < 1 { return "1km以内" }
-        if km < 5 { return "5km以内" }
-        if km < 10 { return "10km以内" }
-        if km < 50 { return "50km以内" }
-        return "遠くにいます"
+        let distanceKm = myLoc.distance(from: targetLoc) / 1000
+        if distanceKm < 1 { return "1km以内" }
+        if distanceKm < 5 { return "5km以内" }
+        let rounded = Int(ceil(distanceKm / 5.0) * 5.0)
+        return "\(rounded)km以内"
     }
     
     private var displaySettingsSheet: some View {
@@ -190,7 +213,6 @@ struct DiscoveryView: View {
                 }
             }
             .navigationTitle("表示設定")
-            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("完了") { showDisplaySettings = false }
@@ -201,7 +223,7 @@ struct DiscoveryView: View {
     }
 }
 
-// MARK: - UserDiscoveryCard
+// ユーザーカードビュー
 struct UserDiscoveryCard: View {
     let user: UserProfile
     @ObservedObject var audioPlayer: AudioPlayer
@@ -221,15 +243,11 @@ struct UserDiscoveryCard: View {
                                 .font(.headline)
                                 .foregroundColor(.primary)
                             
-                            // 年齢が非公開ならカード上でも表示しない
-                            if user.privacySettings["age"] ?? true, let age = user.profileItems["age"], !age.isEmpty {
-                                Text(age)
-                                    .font(.subheadline)
-                                    .foregroundColor(.secondary)
+                            if user.privacySettings["age"] ?? true, let age = user.profileItems["age"] {
+                                Text(age).font(.subheadline).foregroundColor(.secondary)
                             }
                         }
                         
-                        // 共通点と距離を表示
                         HStack {
                             if commonPoints > 0 {
                                 Text("共通点 \(commonPoints)個")
@@ -241,13 +259,10 @@ struct UserDiscoveryCard: View {
                                     .cornerRadius(8)
                             }
                             
-                            // 距離表示
-                            if let distance = distanceText {
+                            if let dist = distanceText {
                                 HStack(spacing: 2) {
-                                    Image(systemName: "location.fill")
-                                        .font(.caption2)
-                                    Text(distance)
-                                        .font(.caption)
+                                    Image(systemName: "location.fill").font(.caption2)
+                                    Text(dist).font(.caption)
                                 }
                                 .foregroundColor(.secondary)
                             }
@@ -267,7 +282,7 @@ struct UserDiscoveryCard: View {
                 }
             }
             
-            // 音声再生セクション
+            // 自己紹介ボイス再生ボタン
             if let audioURL = user.bioAudioURL, let url = URL(string: audioURL) {
                 Button(action: {
                     if audioPlayer.isPlaying && audioPlayer.currentlyPlayingURL == audioURL {
@@ -293,6 +308,7 @@ struct UserDiscoveryCard: View {
                 }
             }
             
+            // アプローチボタン
             NavigationLink(destination: VoiceRecordingView(receiverID: user.uid, mode: .approach)) {
                 Text("この声にメッセージを送る")
                     .font(.subheadline)

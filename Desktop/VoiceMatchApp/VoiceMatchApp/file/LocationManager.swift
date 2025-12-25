@@ -5,7 +5,6 @@ import Combine
 class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     private let manager = CLLocationManager()
     
-    // 他のViewから監視できるように @Published にします
     @Published var location: CLLocation?
     @Published var authorizationStatus: CLAuthorizationStatus?
 
@@ -36,7 +35,6 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let location = locations.last else { return }
         
-        // メインスレッドで座標を更新
         DispatchQueue.main.async {
             self.location = location
         }

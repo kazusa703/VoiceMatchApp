@@ -29,15 +29,15 @@ class AudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
             stopPlayback()
         }
         
-        // --- A. ローカルファイルの場合 (録音直後など) ---
+        // A. ローカルファイルの場合 (録音直後など)
         if url.isFileURL {
             playLocalFile(url: url)
             return
         }
         
-        // --- B. リモートURLの場合 (キャッシュを確認) ---
-        // URLから一意のファイル名を生成
-        let cachedFileURL = cacheDirectory.appendingPathComponent(url.lastPathComponent)
+        // B. リモートURLの場合 (キャッシュを確認)
+        let safeFileName = url.lastPathComponent.replacingOccurrences(of: "/", with: "_")
+        let cachedFileURL = cacheDirectory.appendingPathComponent(safeFileName)
         
         // キャッシュが存在するか確認
         if FileManager.default.fileExists(atPath: cachedFileURL.path) {
@@ -57,7 +57,18 @@ class AudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
             
             do {
                 print("DEBUG: 新規ダウンロード開始: \(url.lastPathComponent)")
-                let (data, _) = try await URLSession.shared.data(from: url)
+                let (data, response) = try await URLSession.shared.data(from: url)
+                
+                if let httpResponse = response as? HTTPURLResponse {
+                    guard httpResponse.statusCode == 200 else {
+                        print("❌ サーバーエラー (Status: \(httpResponse.statusCode)): ファイルが見つかりません")
+                        await MainActor.run {
+                            self.isLoading = false
+                            self.stopPlayback()
+                        }
+                        return
+                    }
+                }
                 
                 // データをキャッシュに保存
                 try data.write(to: destination)
@@ -77,7 +88,7 @@ class AudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
         }
     }
     
-    // ローカル再生用 (キャッシュ済みファイルもここを通る)
+    // ローカル再生用
     private func playLocalFile(url: URL) {
         do {
             audioPlayer = try AVAudioPlayer(contentsOf: url)
@@ -118,10 +129,21 @@ class AudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
         isPlaying = false
         currentlyPlayingURL = nil
     }
+    
+    // 時間指定シーク（シークバー用）
+    func seek(to time: TimeInterval) {
+        audioPlayer?.currentTime = time
+    }
+    
+    var duration: TimeInterval {
+        audioPlayer?.duration ?? 0
+    }
+    
+    var currentTime: TimeInterval {
+        audioPlayer?.currentTime ?? 0
+    }
 
     // MARK: - キャッシュクリーンアップ機能
-    
-    /// キャッシュフォルダ内の古い音声ファイルを自動削除する
     func autoCleanupCache() {
         let fileManager = FileManager.default
         guard let files = try? fileManager.contentsOfDirectory(
@@ -134,14 +156,12 @@ class AudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
         var fileInfos: [(url: URL, date: Date, size: Int64)] = []
         
         for fileURL in files {
-            // 音声関連ファイルのみ対象とする
             guard ["m4a", "wav", "mp3"].contains(fileURL.pathExtension.lowercased()) else { continue }
             
             let attributes = try? fileManager.attributesOfItem(atPath: fileURL.path)
             let modificationDate = attributes?[.modificationDate] as? Date ?? Date.distantPast
             let fileSize = attributes?[.size] as? Int64 ?? 0
             
-            // 1. 期限切れ（3日以上前）のチェック
             if now.timeIntervalSince(modificationDate) > maxCacheAge {
                 try? fileManager.removeItem(at: fileURL)
                 print("DEBUG: 期限切れキャッシュを削除しました: \(fileURL.lastPathComponent)")
@@ -152,9 +172,7 @@ class AudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
             fileInfos.append((fileURL, modificationDate, fileSize))
         }
         
-        // 2. 容量制限（100MB）のチェック
         if currentCacheSize > maxCacheSize {
-            // 古い順にソート
             let sortedFiles = fileInfos.sorted { $0.date < $1.date }
             var sizeToRemove = currentCacheSize - maxCacheSize
             

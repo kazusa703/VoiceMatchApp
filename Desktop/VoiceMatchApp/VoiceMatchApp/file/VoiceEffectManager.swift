@@ -1,7 +1,7 @@
 import Foundation
 import AVFoundation
 
-enum VoiceEffect:  String, CaseIterable {
+enum VoiceEffect: String, CaseIterable {
     case normal = "地声"
     case robot = "ロボット"
     case highPitch = "高音"
@@ -17,7 +17,6 @@ enum VoiceEffect:  String, CaseIterable {
         case .highPitch: return "bird.fill"
         case .deepVoice: return "tortoise.fill"
         case .whisper: return "wind"
-        // ★修正: スペースを削除しました
         case .anonymize: return "questionmark.diamond.fill"
         case .echo: return "waveform"
         }
@@ -28,7 +27,6 @@ class VoiceEffectManager {
     static let shared = VoiceEffectManager()
     
     func generateProcessedAudio(inputURL: URL, effect: VoiceEffect) async throws -> URL {
-        // バックグラウンドスレッドで同期処理を実行
         return try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
@@ -53,8 +51,8 @@ class VoiceEffectManager {
         
         let outputSettings: [String: Any] = [
             AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
-            AVSampleRateKey:  44100,
-            AVNumberOfChannelsKey:  1,
+            AVSampleRateKey: 44100,
+            AVNumberOfChannelsKey: 1,
             AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
         ]
         let outputFile = try AVAudioFile(forWriting: outputURL, settings: outputSettings)
@@ -66,11 +64,11 @@ class VoiceEffectManager {
         configureNodes(pitchNode: pitchNode, reverbNode: reverbNode, for: effect)
         
         let format = inputFile.processingFormat
-        audioEngine.connect(playerNode, to: pitchNode, format:  format)
-        audioEngine.connect(pitchNode, to:  reverbNode, format: format)
+        audioEngine.connect(playerNode, to: pitchNode, format: format)
+        audioEngine.connect(pitchNode, to: reverbNode, format: format)
         audioEngine.connect(reverbNode, to: audioEngine.mainMixerNode, format: format)
         
-        let maxFrames:  AVAudioFrameCount = 4096
+        let maxFrames: AVAudioFrameCount = 4096
         try audioEngine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: maxFrames)
         
         try audioEngine.start()
@@ -89,7 +87,6 @@ class VoiceEffectManager {
             
             var status: AVAudioEngineManualRenderingStatus = .error
             
-            // OSStatus を使った低レベルなレンダリング
             do {
                 status = try audioEngine.renderOffline(framesToRender, to: buffer)
             } catch {

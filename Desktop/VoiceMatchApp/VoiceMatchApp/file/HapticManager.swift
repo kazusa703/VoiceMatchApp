@@ -12,7 +12,6 @@ class HapticManager {
         if UserDefaults.standard.object(forKey: "isHapticsEnabled") == nil {
             return true
         }
-        // 設定がある場合はその値を返す
         return UserDefaults.standard.bool(forKey: "isHapticsEnabled")
     }
     
@@ -20,7 +19,7 @@ class HapticManager {
     func impact(style: UIImpactFeedbackGenerator.FeedbackStyle) {
         guard isEnabled else { return }
         let generator = UIImpactFeedbackGenerator(style: style)
-        generator.prepare() // 反応速度を上げるために準備
+        generator.prepare()
         generator.impactOccurred()
     }
     

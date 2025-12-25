@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Bucket
+   uuid = "4E67C59D-8091-47CB-92C5-68FD95261ADA"
+   type = "1"
+   version = "2.0">
+   <Breakpoints>
+      <BreakpointProxy
+         BreakpointExtensionID = "Xcode.Breakpoint.FileBreakpoint">
+         <BreakpointContent
+            uuid = "6D2E4FB4-7E7F-4418-9EFA-4F62182B41AF"
+            shouldBeEnabled = "Yes"
+            ignoreCount = "0"
+            continueAfterRunningActions = "No"
+            filePath = "VoiceMatchApp/ui/ApproachDetailView.swift"
+            startingColumnNumber = "9223372036854775807"
+            endingColumnNumber = "9223372036854775807"
+            startingLineNumber = "5"
+            endingLineNumber = "5"
+            landmarkName = "ApproachDetailView"
+            landmarkType = "14">
+            <Locations>
+               <Location
+                  uuid = "6D2E4FB4-7E7F-4418-9EFA-4F62182B41AF - 82241562ea0f8183"
+                  shouldBeEnabled = "Yes"
+                  ignoreCount = "0"
+                  continueAfterRunningActions = "No"
+                  symbolName = "VoiceMatchApp.ApproachDetailView.userService.getter : VoiceMatchApp.UserService"
+                  moduleName = "VoiceMatchApp.debug.dylib"
+                  usesParentBreakpointCondition = "Yes"
+                  urlString = "file:///Users/imaiissatsu/Desktop/VoiceMatchApp/Desktop/VoiceMatchApp/VoiceMatchApp/ui/ApproachDetailView.swift"
+                  startingColumnNumber = "9223372036854775807"
+                  endingColumnNumber = "9223372036854775807"
+                  startingLineNumber = "0"
+                  endingLineNumber = "0">
+               </Location>
+               <Location
+                  uuid = "6D2E4FB4-7E7F-4418-9EFA-4F62182B41AF - aad929e3c32d1d0c"
+                  shouldBeEnabled = "Yes"
+                  ignoreCount = "0"
+                  continueAfterRunningActions = "No"
+                  symbolName = "VoiceMatchApp.ApproachDetailView.$userService.getter : SwiftUI.EnvironmentObject&lt;VoiceMatchApp.UserService&gt;.Wrapper"
+                  moduleName = "VoiceMatchApp.debug.dylib"
+                  usesParentBreakpointCondition = "Yes"
+                  urlString = "file:///Users/imaiissatsu/Desktop/VoiceMatchApp/Desktop/VoiceMatchApp/VoiceMatchApp/ui/ApproachDetailView.swift"
+                  startingColumnNumber = "9223372036854775807"
+                  endingColumnNumber = "9223372036854775807"
+                  startingLineNumber = "0"
+                  endingLineNumber = "0">
+               </Location>
+               <Location
+                  uuid = "6D2E4FB4-7E7F-4418-9EFA-4F62182B41AF - fc98d72358d1c227"
+                  shouldBeEnabled = "Yes"
+                  ignoreCount = "0"
+                  continueAfterRunningActions = "No"
+                  symbolName = "default argument 1 of VoiceMatchApp.ApproachDetailView.init(message: VoiceMatchApp.Message, userService: SwiftUI.EnvironmentObject&lt;VoiceMatchApp.UserService&gt;, messageService: SwiftUI.EnvironmentObject&lt;VoiceMatchApp.MessageService&gt;, dismiss: SwiftUI.Environment&lt;SwiftUI.DismissAction&gt;) -&gt; VoiceMatchApp.ApproachDetailView"
+                  moduleName = "VoiceMatchApp.debug.dylib"
+                  usesParentBreakpointCondition = "Yes"
+                  urlString = "file:///Users/imaiissatsu/Desktop/VoiceMatchApp/Desktop/VoiceMatchApp/VoiceMatchApp/ui/ApproachDetailView.swift"
+                  startingColumnNumber = "9223372036854775807"
+                  endingColumnNumber = "9223372036854775807"
+                  startingLineNumber = "0"
+                  endingLineNumber = "0">
+               </Location>
+            </Locations>
+         </BreakpointContent>
+      </BreakpointProxy>
+   </Breakpoints>
+</Bucket>

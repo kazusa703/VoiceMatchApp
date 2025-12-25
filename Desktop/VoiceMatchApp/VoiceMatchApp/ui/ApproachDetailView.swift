@@ -32,11 +32,10 @@ struct ApproachDetailView: View {
                             .font(.title2)
                             .fontWeight(.bold)
                         
-                        // ★ここでエラーが出ていたBadgeView
                         HStack(spacing: 15) {
                             BadgeView(icon: "mappin.and.ellipse", text: user.profileItems["residence"] ?? "未設定")
                             BadgeView(icon: "briefcase", text: user.profileItems["occupation"] ?? "未設定")
-                            BadgeView(icon: "person", text: "\(user.profileItems["age"] ?? "")歳")
+                            BadgeView(icon: "person", text: user.profileItems["age"] ?? "未設定")
                         }
                     }
                 } else {
@@ -95,7 +94,7 @@ struct ApproachDetailView: View {
                 .padding()
             }
             
-            // ★マッチ成功時に自動でチャット画面へ飛ばすための隠しリンク
+            // マッチ成功時に自動でチャット画面へ飛ばすための隠しリンク
             if let match = createdMatch, let profile = senderProfile {
                 NavigationLink(
                     destination: ChatDetailView(match: match, partnerName: profile.username),
@@ -108,7 +107,6 @@ struct ApproachDetailView: View {
         .onAppear { loadData() }
         .onDisappear { player?.pause() }
         .navigationBarTitleDisplayMode(.inline)
-        // 右上の通報・ブロックメニュー
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Menu {
@@ -124,7 +122,6 @@ struct ApproachDetailView: View {
                 }
             }
         }
-        // 通報アラート
         .alert("通報しますか？", isPresented: $showReportAlert) {
             Button("不快なコンテンツ", role: .destructive) { reportUser(reason: "不快なコンテンツ") }
             Button("スパム・宣伝", role: .destructive) { reportUser(reason: "スパム") }
@@ -132,7 +129,6 @@ struct ApproachDetailView: View {
         } message: {
             Text("問題の内容を選択してください。")
         }
-        // ブロックアラート
         .alert("ブロックしますか？", isPresented: $showBlockAlert) {
             Button("ブロックする", role: .destructive) { blockUser() }
             Button("キャンセル", role: .cancel) {}
@@ -170,7 +166,7 @@ struct ApproachDetailView: View {
     private func declineMatch() {
         Task {
             await messageService.declineApproach(message: message)
-            dismiss()
+            await MainActor.run { dismiss() }
         }
     }
     
@@ -182,38 +178,37 @@ struct ApproachDetailView: View {
                     await MainActor.run {
                         self.createdMatch = match
                         self.isProcessing = false
-                        self.navigateToChat = true // 遷移実行
+                        self.navigateToChat = true
                     }
                 }
             } catch {
                 print("DEBUG: マッチ承認失敗: \(error)")
-                isProcessing = false
+                await MainActor.run { isProcessing = false }
             }
         }
     }
     
     private func reportUser(reason: String) {
         Task {
-            // ★修正箇所: commentとaudioURL引数を追加しました
             await userService.reportUser(
                 targetUID: message.senderID,
                 reason: reason,
-                comment: "", // 簡易通報のためコメントは空
-                audioURL: message.audioURL // 通報対象のメッセージ音声を添付
+                comment: "",
+                audioURL: message.audioURL
             )
-            dismiss()
+            await MainActor.run { dismiss() }
         }
     }
     
     private func blockUser() {
         Task {
             await userService.blockUser(targetUID: message.senderID)
-            dismiss()
+            await MainActor.run { dismiss() }
         }
     }
 }
 
-// ★エラーの原因だったBadgeViewの定義
+// BadgeViewの定義
 struct BadgeView: View {
     let icon: String
     let text: String

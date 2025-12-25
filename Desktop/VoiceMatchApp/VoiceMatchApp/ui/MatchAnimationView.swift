@@ -1,96 +1,58 @@
-import SwiftUI // これが不足していたためエラーが出ていました
+import SwiftUI
 
 struct MatchAnimationView: View {
     let partnerName: String
     @Binding var isPresented: Bool
+    @EnvironmentObject var messageService: MessageService
+    
+    @State private var scale: CGFloat = 0.5
+    @State private var opacity: Double = 0.0
     
     var body: some View {
         ZStack {
-            // 背景にインスタ風グラデーションを適用（ダークモードでも映えます）
-            LinearGradient.instaGradient
-                .ignoresSafeArea()
+            Color.black.opacity(0.8).ignoresSafeArea()
             
-            // 装飾用のキラキラした円（背後）
-            VStack {
-                Spacer()
-                ZStack {
-                    Circle()
-                        .fill(Color.white.opacity(0.1))
-                        .frame(width: 400, height: 400)
-                        .scaleEffect(1.5)
-                    Circle()
-                        .fill(Color.white.opacity(0.1))
-                        .frame(width: 300, height: 300)
-                        .offset(x: -100, y: -200)
-                }
-                Spacer()
-            }
-            
-            VStack(spacing: 40) {
-                Spacer()
-                
-                // タイトル
+            VStack(spacing: 30) {
                 Text("It's a Match!")
-                    .font(.system(size: 48, weight: .black, design: .rounded))
+                    .font(.system(size: 40, weight: .black, design: .rounded))
                     .foregroundColor(.white)
-                    .shadow(radius: 10)
+                    .shadow(color: .brandPurple, radius: 10)
                 
-                // ユーザーアイコンの重なり演出
-                HStack(spacing: -30) {
-                    ZStack {
-                        Circle()
-                            .fill(.white)
-                            .frame(width: 130, height: 130)
-                        Image(systemName: "person.fill")
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: 70)
-                            .foregroundColor(.brandPurple)
-                    }
-                    
-                    ZStack {
-                        Circle()
-                            .fill(.white)
-                            .frame(width: 130, height: 130)
-                        Image(systemName: "person.fill")
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: 70)
-                            .foregroundColor(.brandOrange)
-                    }
+                Text("\(partnerName)さんとマッチしました！")
+                    .font(.title2.bold())
+                    .foregroundColor(.white)
+                
+                HStack(spacing: -20) {
+                    Circle().fill(Color.gray).frame(width: 100, height: 100)
+                        .overlay(Circle().stroke(Color.white, lineWidth: 4))
+                    Circle().fill(Color.brandPurple).frame(width: 100, height: 100)
+                        .overlay(Circle().stroke(Color.white, lineWidth: 4))
                 }
-                .shadow(color: .black.opacity(0.2), radius: 20, x: 0, y: 10)
+                .shadow(radius: 10)
                 
-                VStack(spacing: 10) {
-                    Text("\(partnerName)さんと")
-                    Text("繋がりました！")
-                }
-                .font(.title2.bold())
-                .foregroundColor(.white)
+                Spacer().frame(height: 50)
                 
-                Spacer()
-                
-                // 閉じるボタン
                 Button(action: {
-                    isPresented = false
+                    messageService.selectedSection = .matches
+                    withAnimation { isPresented = false }
                 }) {
-                    Text("ボイスを聴きに行く")
-                        .font(.headline)
-                        .foregroundColor(.brandOrange)
-                        .frame(width: 260, height: 60)
-                        .background(Color.white)
-                        .clipShape(Capsule())
-                        .shadow(radius: 5)
+                    Text("チャットを始める")
+                        .font(.headline).foregroundColor(.white)
+                        .padding().frame(width: 250)
+                        .background(LinearGradient.instaGradient).cornerRadius(30)
                 }
-                .padding(.bottom, 50)
+                
+                Button("あとで") {
+                    withAnimation { isPresented = false }
+                }
+                .foregroundColor(.white.opacity(0.8))
+            }
+            .scaleEffect(scale).opacity(opacity)
+        }
+        .onAppear {
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.6)) {
+                scale = 1.0; opacity = 1.0
             }
         }
-    }
-}
-
-// プレビュー用
-struct MatchAnimationView_Previews: PreviewProvider {
-    static var previews: some View {
-        MatchAnimationView(partnerName: "テストユーザー", isPresented: .constant(true))
     }
 }
