@@ -41,6 +41,13 @@ struct ChatDetailView: View {
                                     .foregroundColor(.gray)
                                 Text("ボイスメッセージを送ってみましょう！")
                                     .foregroundColor(.secondary)
+                                
+                                // デバッグ情報
+                                #if DEBUG
+                                Text("matchID: \(matchID)")
+                                    .font(.caption2)
+                                    .foregroundColor(.gray)
+                                #endif
                             }
                             .frame(maxWidth: .infinity)
                             .padding(.top, 100)
@@ -109,12 +116,18 @@ struct ChatDetailView: View {
             }
         }
         .onAppear {
+            print("🗨️ [ChatDetailView] onAppear")
+            print("🗨️ [ChatDetailView] matchID: \(matchID)")
+            print("🗨️ [ChatDetailView] currentUID: \(currentUID)")
+            print("🗨️ [ChatDetailView] partnerID: \(partnerID)")
+            
             messageService.listenToMessages(for: matchID)
             Task {
                 partnerProfile = try? await userService.fetchOtherUserProfile(uid: partnerID)
             }
         }
         .onDisappear {
+            print("🗨️ [ChatDetailView] onDisappear")
             messageService.clearMessages()
             audioPlayer.stopPlayback()
         }
@@ -225,6 +238,7 @@ struct ChatVoiceRecorderView: View {
     @State private var isSending = false
     @State private var processedURL: URL?
     @State private var showEffectSettings = false
+    @State private var errorMessage: String?
     
     @State private var selectedEffect: VoiceEffectDefinition?
     
@@ -246,6 +260,14 @@ struct ChatVoiceRecorderView: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
                 
+                // エラーメッセージ
+                if let error = errorMessage {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundColor(.red)
+                        .padding(.horizontal)
+                }
+                
                 Spacer()
                 
                 // 録音時間
@@ -263,6 +285,13 @@ struct ChatVoiceRecorderView: View {
                                 .font(.title)
                                 .foregroundColor(.white)
                         )
+                }
+                
+                // マイク権限エラー
+                if !audioRecorder.hasPermission {
+                    Text("マイクへのアクセスを許可してください")
+                        .font(.caption)
+                        .foregroundColor(.red)
                 }
                 
                 Spacer()
@@ -360,9 +389,12 @@ struct ChatVoiceRecorderView: View {
                 EffectSettingsView(effectManager: effectManager)
             }
             .onAppear {
+                print("🎙️ [ChatVoiceRecorderView] onAppear")
+                print("🎙️ [ChatVoiceRecorderView] matchID: \(matchID)")
                 selectedEffect = VoiceEffectConstants.freeEffects.first
             }
             .onDisappear {
+                print("🎙️ [ChatVoiceRecorderView] onDisappear")
                 timer?.invalidate()
                 audioPlayer.stopPlayback()
             }
@@ -370,10 +402,27 @@ struct ChatVoiceRecorderView: View {
     }
     
     private func toggleRecording() {
+        print("🎙️ [toggleRecording] 開始")
+        errorMessage = nil
+        
         if audioRecorder.isRecording {
+            print("🎙️ [toggleRecording] 録音停止")
             audioRecorder.stopRecording()
             timer?.invalidate()
+            
+            // 録音完了後のファイル確認
+            if let url = audioRecorder.recordingURL {
+                print("🎙️ [toggleRecording] 録音URL: \(url.path)")
+                let exists = FileManager.default.fileExists(atPath: url.path)
+                print("🎙️ [toggleRecording] ファイル存在: \(exists)")
+                
+                if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+                   let size = attrs[.size] as? Int64 {
+                    print("🎙️ [toggleRecording] ファイルサイズ: \(size) bytes")
+                }
+            }
         } else {
+            print("🎙️ [toggleRecording] 録音開始")
             audioPlayer.stopPlayback()
             recordingDuration = 0
             processedURL = nil
@@ -390,27 +439,41 @@ struct ChatVoiceRecorderView: View {
     }
     
     private func resetRecording() {
+        print("🎙️ [resetRecording] リセット")
         audioPlayer.stopPlayback()
+        audioRecorder.resetRecording()
         recordingDuration = 0
         processedURL = nil
+        errorMessage = nil
     }
     
     private func selectEffect(_ effect: VoiceEffectDefinition) {
+        print("🎙️ [selectEffect] エフェクト選択: \(effect.key)")
         selectedEffect = effect
         effectManager.selectEffect(effect)
         processedURL = nil
     }
     
     private func previewAudio() {
+        print("🎙️ [previewAudio] 試聴開始")
+        
         if audioPlayer.isPlaying {
+            print("🎙️ [previewAudio] 再生停止")
             audioPlayer.stopPlayback()
             return
         }
         
         if let effect = selectedEffect, effect.key != "normal" {
-            guard let originalURL = audioRecorder.recordingURL else { return }
+            guard let originalURL = audioRecorder.recordingURL else {
+                print("❌ [previewAudio] recordingURLがnil")
+                return
+            }
+            
+            print("🎙️ [previewAudio] エフェクト適用: \(effect.key)")
+            print("🎙️ [previewAudio] 元ファイル: \(originalURL.path)")
             
             if let processed = processedURL {
+                print("🎙️ [previewAudio] 処理済みURLを再生: \(processed.path)")
                 audioPlayer.startPlayback(url: processed)
             } else {
                 isProcessing = true
@@ -418,29 +481,47 @@ struct ChatVoiceRecorderView: View {
                     isProcessing = false
                     switch result {
                     case .success(let url):
+                        print("✅ [previewAudio] エフェクト処理成功: \(url.path)")
                         processedURL = url
                         audioPlayer.startPlayback(url: url)
                     case .failure(let error):
-                        print("エフェクト処理エラー: \(error)")
+                        print("❌ [previewAudio] エフェクト処理エラー: \(error)")
+                        errorMessage = "エフェクト処理に失敗しました"
                     }
                 }
             }
         } else {
             if let url = audioRecorder.recordingURL {
+                print("🎙️ [previewAudio] ノーマル再生: \(url.path)")
                 audioPlayer.startPlayback(url: url)
             }
         }
     }
     
     private func sendVoice() {
-        guard recordingDuration > 0 else { return }
+        print("🎙️ [sendVoice] 送信開始")
+        print("🎙️ [sendVoice] recordingDuration: \(recordingDuration)")
+        
+        guard recordingDuration > 0 else {
+            print("❌ [sendVoice] recordingDurationが0")
+            errorMessage = "録音してから送信してください"
+            return
+        }
         
         let effectKey = selectedEffect?.key
+        print("🎙️ [sendVoice] effectKey: \(effectKey ?? "nil")")
         
         if let effect = selectedEffect, effect.key != "normal" {
-            guard let originalURL = audioRecorder.recordingURL else { return }
+            guard let originalURL = audioRecorder.recordingURL else {
+                print("❌ [sendVoice] recordingURLがnil")
+                errorMessage = "録音ファイルが見つかりません"
+                return
+            }
+            
+            print("🎙️ [sendVoice] エフェクト処理して送信: \(effect.key)")
             
             if let processed = processedURL {
+                print("🎙️ [sendVoice] 処理済みURLを使用")
                 sendProcessedVoice(url: processed, effectKey: effectKey)
             } else {
                 isProcessing = true
@@ -448,37 +529,84 @@ struct ChatVoiceRecorderView: View {
                     isProcessing = false
                     switch result {
                     case .success(let url):
+                        print("✅ [sendVoice] エフェクト処理成功")
                         sendProcessedVoice(url: url, effectKey: effectKey)
                     case .failure(let error):
-                        print("エフェクト処理エラー: \(error)")
+                        print("❌ [sendVoice] エフェクト処理エラー: \(error)")
+                        errorMessage = "エフェクト処理に失敗しました"
                     }
                 }
             }
         } else {
             if let url = audioRecorder.recordingURL {
+                print("🎙️ [sendVoice] ノーマルで送信")
                 sendProcessedVoice(url: url, effectKey: effectKey)
+            } else {
+                print("❌ [sendVoice] recordingURLがnil")
+                errorMessage = "録音ファイルが見つかりません"
             }
         }
     }
     
     private func sendProcessedVoice(url: URL, effectKey: String?) {
-        guard let data = try? Data(contentsOf: url) else { return }
+        print("🎙️ [sendProcessedVoice] 送信処理開始")
+        print("🎙️ [sendProcessedVoice] URL: \(url.path)")
+        
+        // ファイル存在確認
+        let exists = FileManager.default.fileExists(atPath: url.path)
+        print("🎙️ [sendProcessedVoice] ファイル存在: \(exists)")
+        
+        guard exists else {
+            print("❌ [sendProcessedVoice] ファイルが存在しません")
+            errorMessage = "音声ファイルが見つかりません"
+            return
+        }
+        
+        guard let data = try? Data(contentsOf: url) else {
+            print("❌ [sendProcessedVoice] Dataの読み込みに失敗")
+            errorMessage = "音声ファイルの読み込みに失敗しました"
+            return
+        }
+        
+        print("🎙️ [sendProcessedVoice] Data size: \(data.count) bytes")
+        
+        guard data.count > 0 else {
+            print("❌ [sendProcessedVoice] Dataが空です")
+            errorMessage = "音声データが空です"
+            return
+        }
+        
+        let senderID = Auth.auth().currentUser?.uid ?? ""
+        print("🎙️ [sendProcessedVoice] senderID: \(senderID)")
+        print("🎙️ [sendProcessedVoice] matchID: \(matchID)")
+        print("🎙️ [sendProcessedVoice] duration: \(recordingDuration)")
+        
+        guard !senderID.isEmpty else {
+            print("❌ [sendProcessedVoice] senderIDが空です")
+            errorMessage = "ログインしていません"
+            return
+        }
         
         isSending = true
         Task {
             do {
+                print("🎙️ [sendProcessedVoice] MessageService.sendVoiceMessage呼び出し")
                 try await messageService.sendVoiceMessage(
                     matchID: matchID,
-                    senderID: Auth.auth().currentUser?.uid ?? "",
+                    senderID: senderID,
                     audioData: data,
                     duration: recordingDuration,
                     effectUsed: effectKey
                 )
+                print("✅ [sendProcessedVoice] 送信成功")
                 dismiss()
             } catch {
-                print("送信エラー: \(error)")
+                print("❌ [sendProcessedVoice] 送信エラー: \(error)")
+                print("❌ [sendProcessedVoice] エラー詳細: \(error.localizedDescription)")
+                errorMessage = "送信に失敗しました: \(error.localizedDescription)"
                 isSending = false
             }
         }
     }
 }
+

@@ -193,6 +193,9 @@ class UserService: ObservableObject {
             currentUserProfile?.matchedUserIDs.append(fromUserID)
             currentUserProfile?.receivedLikeUserIDs.removeAll { $0 == fromUserID }
             
+            // いいねリストからも削除
+            receivedLikes.removeAll { $0.fromUserID == fromUserID }
+            
             return match
         } catch {
             print("いいね承認エラー: \(error)")
@@ -212,6 +215,9 @@ class UserService: ObservableObject {
             ])
             
             currentUserProfile?.receivedLikeUserIDs.removeAll { $0 == fromUserID }
+            
+            // いいねリストからも削除
+            receivedLikes.removeAll { $0.fromUserID == fromUserID }
         } catch {
             print("いいね拒否エラー: \(error)")
         }
@@ -537,15 +543,103 @@ class UserService: ObservableObject {
         }
     }
     
-    // MARK: - アカウント削除
+    // MARK: - アカウント削除（完全削除）
     
-    func deleteUserAccount(uid: String) async throws {
-        try await db.collection("users").document(uid).delete()
-        try? await storage.reference().child("icons/\(uid).jpg").delete()
-        for item in VoiceProfileConstants.items {
-            try? await storage.reference().child("voice_profiles/\(uid)/\(item.key).m4a").delete()
+    // MARK: - アカウント削除（完全削除）
+        
+        func deleteUserAccount(uid: String) async throws {
+            print("🗑️ [deleteUserAccount] アカウント削除開始: \(uid)")
+            
+            // 1. ユーザードキュメントを削除
+            print("🗑️ [deleteUserAccount] ユーザードキュメント削除中...")
+            try await db.collection("users").document(uid).delete()
+            
+            // 2. アイコン画像を削除
+            print("🗑️ [deleteUserAccount] アイコン画像削除中...")
+            try? await storage.reference().child("icons/\(uid).jpg").delete()
+            
+            // 3. ボイスプロフィールを削除
+            print("🗑️ [deleteUserAccount] ボイスプロフィール削除中...")
+            for item in VoiceProfileConstants.items {
+                try? await storage.reference().child("voice_profiles/\(uid)/\(item.key).m4a").delete()
+            }
+            
+            // 4. 送信したいいねを削除
+            print("🗑️ [deleteUserAccount] 送信したいいね削除中...")
+            // 変数名を変更: sentLikes -> sentLikesSnapshot
+            let sentLikesSnapshot = try await db.collection("likes")
+                .whereField("fromUserID", isEqualTo: uid)
+                .getDocuments()
+            for doc in sentLikesSnapshot.documents {
+                try? await doc.reference.delete()
+            }
+            
+            // 5. 受信したいいねを削除
+            print("🗑️ [deleteUserAccount] 受信したいいね削除中...")
+            // 変数名を変更: receivedLikes -> receivedLikesSnapshot
+            // 修正理由: クラスプロパティの self.receivedLikes と名前が被り、最後の初期化でエラーになるため
+            let receivedLikesSnapshot = try await db.collection("likes")
+                .whereField("toUserID", isEqualTo: uid)
+                .getDocuments()
+            for doc in receivedLikesSnapshot.documents {
+                try? await doc.reference.delete()
+            }
+            
+            // 6. マッチとメッセージを削除
+            print("🗑️ [deleteUserAccount] マッチとメッセージ削除中...")
+            let matches1 = try await db.collection("matches")
+                .whereField("user1ID", isEqualTo: uid)
+                .getDocuments()
+            let matches2 = try await db.collection("matches")
+                .whereField("user2ID", isEqualTo: uid)
+                .getDocuments()
+            
+            for doc in matches1.documents + matches2.documents {
+                let matchID = doc.documentID
+                
+                // マッチ内のメッセージを削除
+                let messages = try await db.collection("matches").document(matchID)
+                    .collection("messages").getDocuments()
+                for msgDoc in messages.documents {
+                    // メッセージの音声ファイルを削除
+                    if let audioURL = msgDoc.data()["audioURL"] as? String,
+                       let url = URL(string: audioURL) {
+                        // Storage参照を取得して削除
+                        let pathComponents = url.pathComponents
+                        if let chatVoicesIndex = pathComponents.firstIndex(of: "chat_voices") {
+                            let storagePath = pathComponents[chatVoicesIndex...].joined(separator: "/")
+                            try? await storage.reference().child(storagePath).delete()
+                        }
+                    }
+                    try? await msgDoc.reference.delete()
+                }
+                
+                // マッチドキュメントを削除
+                try? await doc.reference.delete()
+            }
+            
+            // 7. 通報を削除（自分が通報したもの）
+            print("🗑️ [deleteUserAccount] 通報削除中...")
+            let reportsSnapshot = try await db.collection("reports")
+                .whereField("reporterID", isEqualTo: uid)
+                .getDocuments()
+            for doc in reportsSnapshot.documents {
+                try? await doc.reference.delete()
+            }
+            
+            // 8. 他ユーザーの配列から自分を削除
+            print("🗑️ [deleteUserAccount] 他ユーザーの参照削除中...")
+            // ローカルの状態をクリア
+            
+            print("✅ [deleteUserAccount] アカウント削除完了")
+            
+            // メインスレッドで更新するためにTaskで囲むか、MainActor内で実行
+            await MainActor.run {
+                self.currentUserProfile = nil
+                self.discoveryUsers = []
+                self.receivedLikes = [] // ここでのエラーが解消されます
+            }
         }
-    }
     
     // MARK: - 管理者機能
     

@@ -205,45 +205,223 @@ class VoiceEffectManager: ObservableObject {
     
     // エフェクトを適用して新しい音声ファイルを生成
     func applyEffect(to inputURL: URL, completion: @escaping (Result<URL, Error>) -> Void) {
+        print("🎵 [VoiceEffectManager] applyEffect開始")
+        print("🎵 [VoiceEffectManager] 入力URL: \(inputURL.path)")
+        print("🎵 [VoiceEffectManager] 現在のエフェクト: \(currentSettings.effectKey)")
+        print("🎵 [VoiceEffectManager] pitch=\(currentSettings.pitch), rate=\(currentSettings.rate), reverb=\(currentSettings.reverb)")
+        
+        // ファイルの存在確認
+        let fileExists = FileManager.default.fileExists(atPath: inputURL.path)
+        print("🎵 [VoiceEffectManager] ファイル存在: \(fileExists)")
+        
+        if !fileExists {
+            print("❌ [VoiceEffectManager] 入力ファイルが存在しません: \(inputURL.path)")
+            completion(.failure(VoiceEffectError.fileNotFound))
+            return
+        }
+        
+        // ファイルサイズ確認
+        if let attributes = try? FileManager.default.attributesOfItem(atPath: inputURL.path),
+           let fileSize = attributes[.size] as? Int64 {
+            print("🎵 [VoiceEffectManager] ファイルサイズ: \(fileSize) bytes")
+            if fileSize == 0 {
+                print("❌ [VoiceEffectManager] ファイルサイズが0です")
+                completion(.failure(VoiceEffectError.emptyFile))
+                return
+            }
+        }
+        
         // ノーマルの場合はそのまま返す
         if currentSettings.effectKey == "normal" &&
            currentSettings.pitch == 0 &&
            currentSettings.rate == 1.0 &&
            currentSettings.reverb == 0 &&
            currentSettings.distortion == 0 {
+            print("🎵 [VoiceEffectManager] ノーマルエフェクト - 元ファイルをそのまま返す")
             completion(.success(inputURL))
             return
         }
         
         isProcessing = true
         
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            guard let self = self else { return }
-            
-            do {
-                let outputURL = try self.processAudioWithAVFoundation(inputURL: inputURL)
-                DispatchQueue.main.async {
-                    self.isProcessing = false
-                    completion(.success(outputURL))
+        // 非同期でトラックを読み込んでから処理
+        let asset = AVURLAsset(url: inputURL)
+        print("🎵 [VoiceEffectManager] AVURLAsset作成完了")
+        
+        // iOS 15+ では loadTracks を使用
+        if #available(iOS 15.0, *) {
+            Task {
+                do {
+                    let tracks = try await asset.loadTracks(withMediaType: .audio)
+                    print("🎵 [VoiceEffectManager] 非同期トラック読み込み完了: \(tracks.count)トラック")
+                    
+                    guard let audioTrack = tracks.first else {
+                        print("❌ [VoiceEffectManager] オーディオトラックが見つかりません")
+                        await MainActor.run {
+                            self.isProcessing = false
+                            completion(.failure(VoiceEffectError.noAudioTrack))
+                        }
+                        return
+                    }
+                    
+                    // duration も非同期で取得
+                    let duration = try await asset.load(.duration)
+                    print("🎵 [VoiceEffectManager] duration: \(CMTimeGetSeconds(duration))秒")
+                    
+                    let outputURL = try await self.processAudioAsync(
+                        asset: asset,
+                        audioTrack: audioTrack,
+                        duration: duration
+                    )
+                    
+                    await MainActor.run {
+                        self.isProcessing = false
+                        print("✅ [VoiceEffectManager] エフェクト処理完了: \(outputURL.path)")
+                        completion(.success(outputURL))
+                    }
+                } catch {
+                    print("❌ [VoiceEffectManager] エフェクト処理エラー: \(error)")
+                    print("❌ [VoiceEffectManager] エラー詳細: \(error.localizedDescription)")
+                    await MainActor.run {
+                        self.isProcessing = false
+                        // エラー時は元のファイルをそのまま返す
+                        completion(.success(inputURL))
+                    }
                 }
-            } catch {
-                print("エフェクト処理エラー: \(error)")
-                DispatchQueue.main.async {
-                    self.isProcessing = false
-                    // エラー時は元のファイルをそのまま返す
-                    completion(.success(inputURL))
+            }
+        } else {
+            // iOS 14以下の場合は同期的に読み込み（loadValuesAsynchronously使用）
+            asset.loadValuesAsynchronously(forKeys: ["tracks", "duration"]) { [weak self] in
+                guard let self = self else { return }
+                
+                var tracksError: NSError?
+                var durationError: NSError?
+                
+                let tracksStatus = asset.statusOfValue(forKey: "tracks", error: &tracksError)
+                let durationStatus = asset.statusOfValue(forKey: "duration", error: &durationError)
+                
+                print("🎵 [VoiceEffectManager] tracks status: \(tracksStatus.rawValue)")
+                print("🎵 [VoiceEffectManager] duration status: \(durationStatus.rawValue)")
+                
+                if let error = tracksError {
+                    print("❌ [VoiceEffectManager] tracks読み込みエラー: \(error)")
+                }
+                if let error = durationError {
+                    print("❌ [VoiceEffectManager] duration読み込みエラー: \(error)")
+                }
+                
+                guard tracksStatus == .loaded, durationStatus == .loaded else {
+                    print("❌ [VoiceEffectManager] アセット読み込み失敗")
+                    DispatchQueue.main.async {
+                        self.isProcessing = false
+                        completion(.success(inputURL))
+                    }
+                    return
+                }
+                
+                let tracks = asset.tracks(withMediaType: .audio)
+                print("🎵 [VoiceEffectManager] トラック数: \(tracks.count)")
+                
+                guard let audioTrack = tracks.first else {
+                    print("❌ [VoiceEffectManager] オーディオトラックが見つかりません")
+                    DispatchQueue.main.async {
+                        self.isProcessing = false
+                        completion(.success(inputURL))
+                    }
+                    return
+                }
+                
+                do {
+                    let outputURL = try self.processAudioWithAVFoundationSync(
+                        asset: asset,
+                        audioTrack: audioTrack
+                    )
+                    DispatchQueue.main.async {
+                        self.isProcessing = false
+                        print("✅ [VoiceEffectManager] エフェクト処理完了: \(outputURL.path)")
+                        completion(.success(outputURL))
+                    }
+                } catch {
+                    print("❌ [VoiceEffectManager] 処理エラー: \(error)")
+                    DispatchQueue.main.async {
+                        self.isProcessing = false
+                        completion(.success(inputURL))
+                    }
                 }
             }
         }
     }
     
-    private func processAudioWithAVFoundation(inputURL: URL) throws -> URL {
-        // 入力ファイルを読み込み
-        let asset = AVURLAsset(url: inputURL)
+    // iOS 15+ 用の非同期処理
+    @available(iOS 15.0, *)
+    private func processAudioAsync(asset: AVURLAsset, audioTrack: AVAssetTrack, duration: CMTime) async throws -> URL {
+        print("🎵 [processAudioAsync] 処理開始")
         
-        guard let audioTrack = asset.tracks(withMediaType: .audio).first else {
-            throw VoiceEffectError.noAudioTrack
+        // 出力URL
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("m4a")
+        
+        print("🎵 [processAudioAsync] 出力URL: \(outputURL.path)")
+        
+        // AVMutableComposition を使用
+        let composition = AVMutableComposition()
+        guard let compositionAudioTrack = composition.addMutableTrack(
+            withMediaType: .audio,
+            preferredTrackID: kCMPersistentTrackID_Invalid
+        ) else {
+            print("❌ [processAudioAsync] compositionTrack作成失敗")
+            throw VoiceEffectError.compositionFailed
         }
+        
+        let timeRange = CMTimeRange(start: .zero, duration: duration)
+        print("🎵 [processAudioAsync] timeRange: start=0, duration=\(CMTimeGetSeconds(duration))")
+        
+        try compositionAudioTrack.insertTimeRange(timeRange, of: audioTrack, at: .zero)
+        print("🎵 [processAudioAsync] insertTimeRange完了")
+        
+        // タイムスケールでピッチと速度を調整
+        if currentSettings.rate != 1.0 {
+            let scaledDuration = CMTimeMultiplyByFloat64(duration, multiplier: Float64(1.0 / currentSettings.rate))
+            compositionAudioTrack.scaleTimeRange(timeRange, toDuration: scaledDuration)
+            print("🎵 [processAudioAsync] rate調整完了: \(currentSettings.rate)")
+        }
+        
+        // エクスポート
+        guard let exportSession = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetAppleM4A) else {
+            print("❌ [processAudioAsync] exportSession作成失敗")
+            throw VoiceEffectError.exportFailed
+        }
+        
+        exportSession.outputURL = outputURL
+        exportSession.outputFileType = .m4a
+        
+        print("🎵 [processAudioAsync] エクスポート開始")
+        
+        await exportSession.export()
+        
+        print("🎵 [processAudioAsync] エクスポートステータス: \(exportSession.status.rawValue)")
+        
+        if exportSession.status == .failed {
+            print("❌ [processAudioAsync] エクスポート失敗: \(exportSession.error?.localizedDescription ?? "不明")")
+            throw exportSession.error ?? VoiceEffectError.exportFailed
+        }
+        
+        // 出力ファイルの確認
+        let outputExists = FileManager.default.fileExists(atPath: outputURL.path)
+        print("🎵 [processAudioAsync] 出力ファイル存在: \(outputExists)")
+        
+        if let attrs = try? FileManager.default.attributesOfItem(atPath: outputURL.path),
+           let size = attrs[.size] as? Int64 {
+            print("🎵 [processAudioAsync] 出力ファイルサイズ: \(size) bytes")
+        }
+        
+        return outputURL
+    }
+    
+    // iOS 14以下用の同期処理
+    private func processAudioWithAVFoundationSync(asset: AVURLAsset, audioTrack: AVAssetTrack) throws -> URL {
+        print("🎵 [processAudioSync] 処理開始")
         
         // 出力URL
         let outputURL = FileManager.default.temporaryDirectory
@@ -282,6 +460,7 @@ class VoiceEffectManager: ObservableObject {
         exportSession.exportAsynchronously {
             if exportSession.status == .failed {
                 exportError = exportSession.error
+                print("❌ [processAudioSync] エクスポート失敗: \(exportSession.error?.localizedDescription ?? "不明")")
             }
             semaphore.signal()
         }
@@ -302,6 +481,8 @@ enum VoiceEffectError: LocalizedError {
     case noAudioTrack
     case compositionFailed
     case exportFailed
+    case fileNotFound
+    case emptyFile
     
     var errorDescription: String? {
         switch self {
@@ -315,6 +496,10 @@ enum VoiceEffectError: LocalizedError {
             return "音声合成に失敗しました"
         case .exportFailed:
             return "エクスポートに失敗しました"
+        case .fileNotFound:
+            return "音声ファイルが見つかりません"
+        case .emptyFile:
+            return "音声ファイルが空です"
         }
     }
 }
