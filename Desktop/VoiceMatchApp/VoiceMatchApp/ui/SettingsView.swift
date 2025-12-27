@@ -25,13 +25,22 @@ struct SettingsView: View {
                                 .foregroundColor(user.isAnonymous ? .orange : .secondary)
                         }
                     }
+                    
+                    if let user = userService.currentUserProfile {
+                        HStack {
+                            Text("プラン")
+                            Spacer()
+                            Text(user.isProUser ? "Pro" : "無料")
+                                .foregroundColor(user.isProUser ? .yellow : .secondary)
+                        }
+                    }
                 }
                 
                 if let user = userService.currentUserProfile {
                     Section(header: Text("プッシュ通知設定")) {
-                        Toggle("アプローチが届いた時", isOn: Binding(
-                            get: { user.notificationSettings["approach"] ?? true },
-                            set: { userService.updateNotificationSettings(key: "approach", isOn: $0) }
+                        Toggle("いいねが届いた時", isOn: Binding(
+                            get: { user.notificationSettings["like"] ?? true },
+                            set: { userService.updateNotificationSettings(key: "like", isOn: $0) }
                         ))
                         Toggle("マッチングした時", isOn: Binding(
                             get: { user.notificationSettings["match"] ?? true },
@@ -45,19 +54,6 @@ struct SettingsView: View {
                     
                     Section(header: Text("アプリ設定")) {
                         Toggle("バイブレーション", isOn: $isHapticsEnabled)
-                        
-                        Toggle(isOn: Binding(
-                            get: { user.isLocationPublic },
-                            set: { userService.updateLocationPublicStatus(isOn: $0) }
-                        )) {
-                            HStack {
-                                Image(systemName: "mappin.and.ellipse").foregroundColor(.brandPurple)
-                                VStack(alignment: .leading) {
-                                    Text("位置情報の公開")
-                                    Text("Proユーザー同士でおおよその距離を表示します").font(.caption2).foregroundColor(.secondary)
-                                }
-                            }
-                        }
                     }
                     
                     Section(header: Text("コミュニティ管理")) {
@@ -126,7 +122,7 @@ struct SkippedUsersListView: View {
             } else {
                 ForEach(skippedUsers) { user in
                     HStack {
-                        UserAvatarView(imageURL: user.profileImageURL, size: 40)
+                        UserAvatarView(imageURL: user.iconImageURL, size: 40)
                         Text(user.username)
                         Spacer()
                         Button("戻す") {
@@ -160,13 +156,8 @@ struct LockedAccountView: View {
             
             VStack(spacing: 16) {
                 Text("アカウントが停止されました").font(.title2.bold())
-                Text("複数のユーザーからの通報、または利用規約に違反する行為が確認されたため、このアカウントの使用を停止いたしました。")
+                Text("利用規約に違反する行為が確認されたため、このアカウントの使用を停止いたしました。")
                     .font(.body).foregroundColor(.secondary).multilineTextAlignment(.center).padding(.horizontal, 40)
-            }
-            
-            VStack(spacing: 8) {
-                Text("心当たりがない場合は").font(.caption).foregroundColor(.gray)
-                Text("support@voicematch-app.com").font(.subheadline.bold()).foregroundColor(.brandPurple)
             }
             
             Spacer()
@@ -188,11 +179,11 @@ struct ReportSheetView: View {
     @EnvironmentObject var userService: UserService
     @Environment(\.dismiss) var dismiss
     
-    @State private var selectedReason = "セクシャルハラスメント"
+    @State private var selectedReason = "不快なコンテンツ"
     @State private var comment = ""
     @State private var isSubmitting = false
     
-    let reasons = ["セクシャルハラスメント", "嫌がらせ", "不快な音声", "スパム", "その他"]
+    let reasons = ["不快なコンテンツ", "嫌がらせ", "スパム", "その他"]
     
     var body: some View {
         NavigationView {
@@ -269,102 +260,71 @@ struct AdminReportListView: View {
     }
 }
 
-// MARK: - VoiceBioRecordingView
-struct VoiceBioRecordingView: View {
-    @EnvironmentObject var userService: UserService
+// MARK: - PaywallView
+struct PaywallView: View {
     @Environment(\.dismiss) var dismiss
-    
-    @StateObject private var audioRecorder = AudioRecorder()
-    @StateObject private var audioPlayer = AudioPlayer()
-    
-    @State private var isUploading = false
-    @State private var remainingTime: Double = 30.0
-    @State private var timer: Timer?
-    @State private var progress: Double = 0.0
+    @EnvironmentObject var purchaseManager: PurchaseManager
     
     var body: some View {
-        VStack(spacing: 30) {
-            Text("自己紹介ボイス").font(.title2).fontWeight(.bold).padding(.top)
-            
-            Spacer()
-            
-            Text(String(format: "残り %.1f秒", remainingTime))
-                .font(.system(size: 40, weight: .bold, design: .monospaced))
-                .foregroundColor(remainingTime < 5 ? .red : .primary)
-            
-            ZStack {
-                Circle().stroke(Color.gray.opacity(0.2), lineWidth: 4).frame(width: 180, height: 180)
-                Circle().trim(from: 0.0, to: progress).stroke(Color.brandPurple, style: StrokeStyle(lineWidth: 4, lineCap: .round))
-                    .frame(width: 180, height: 180).rotationEffect(.degrees(-90))
-                
-                Button(action: toggleRecording) {
-                    Circle().fill(audioRecorder.isRecording ? Color.red : Color.brandPurple).frame(width: 90, height: 90)
-                        .overlay(Image(systemName: audioRecorder.isRecording ? "stop.fill" : "mic.fill").font(.system(size: 40)).foregroundColor(.white))
+        VStack(spacing: 20) {
+            HStack {
+                Spacer()
+                Button(action: { dismiss() }) {
+                    Image(systemName: "xmark").foregroundColor(.primary).padding()
                 }
             }
             
-            if audioRecorder.recordingURL != nil && !audioRecorder.isRecording {
-                HStack(spacing: 20) {
-                    Button(action: resetRecording) {
-                        VStack { Image(systemName: "arrow.counterclockwise"); Text("撮り直す").font(.caption) }.foregroundColor(.secondary)
-                    }
-                    Spacer()
-                    Button(action: previewAudio) {
-                        VStack { Image(systemName: audioPlayer.isPlaying ? "stop.circle" : "play.circle"); Text(audioPlayer.isPlaying ? "停止" : "確認").font(.caption) }.foregroundColor(.brandPurple)
-                    }
-                    Spacer()
-                    Button(action: saveVoice) {
-                        if isUploading { ProgressView().frame(width: 100) }
-                        else { Text("保存する").fontWeight(.bold).frame(width: 100) }
-                    }
-                    .padding(.vertical, 12).background(Color.brandPurple).foregroundColor(.white).cornerRadius(30).disabled(isUploading)
-                }
-                .padding(.horizontal, 30)
+            Spacer()
+            
+            Image(systemName: "crown.fill").font(.system(size: 80)).foregroundColor(.yellow)
+            
+            Text("Proプランにアップグレード").font(.title).fontWeight(.bold)
+            
+            VStack(alignment: .leading, spacing: 15) {
+                FeatureRow(icon: "heart.fill", text: "いいね100回/日（通常10回）")
+                FeatureRow(icon: "waveform", text: "10種類のボイスエフェクト")
+                FeatureRow(icon: "slider.horizontal.3", text: "エフェクトの細かい調整")
+                FeatureRow(icon: "eye.slash", text: "広告非表示")
+                FeatureRow(icon: "line.3.horizontal.decrease.circle", text: "必須条件フィルター無制限")
             }
+            .padding()
+            .background(Color.gray.opacity(0.1))
+            .cornerRadius(15)
+            .padding(.horizontal)
+            
+            Spacer()
+            
+            Button(action: {
+                purchaseManager.purchasePro()
+                dismiss()
+            }) {
+                VStack(spacing: 4) {
+                    Text("Proプランに登録").fontWeight(.bold)
+                    Text("$9.99 / 月").font(.caption)
+                }
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(LinearGradient.instaGradient)
+                .cornerRadius(30)
+            }
+            .padding(.horizontal)
+            
+            Button("購入を復元する") { purchaseManager.restorePurchases() }
+                .font(.caption).foregroundColor(.gray)
             
             Spacer()
         }
-        .padding()
-        .onDisappear { timer?.invalidate(); audioPlayer.stopPlayback() }
     }
-    
-    private func toggleRecording() {
-        if audioRecorder.isRecording {
-            audioRecorder.stopRecording()
-            timer?.invalidate()
-        } else {
-            audioPlayer.stopPlayback()
-            remainingTime = 30.0; progress = 0.0
-            audioRecorder.startRecording()
-            timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
-                remainingTime -= 0.1; progress += 0.1 / 30.0
-                if remainingTime <= 0 { audioRecorder.stopRecording(); timer?.invalidate() }
-            }
-        }
-    }
-    
-    private func resetRecording() {
-        audioPlayer.stopPlayback()
-        remainingTime = 30.0; progress = 0.0
-    }
-    
-    private func previewAudio() {
-        guard let url = audioRecorder.recordingURL else { return }
-        if audioPlayer.isPlaying { audioPlayer.stopPlayback() }
-        else { audioPlayer.startPlayback(url: url) }
-    }
-    
-    private func saveVoice() {
-        guard let url = audioRecorder.recordingURL else { return }
-        isUploading = true
-        Task {
-            do {
-                try await userService.uploadBioVoice(audioURL: url)
-                await MainActor.run { dismiss() }
-            } catch {
-                print("エラー: \(error)")
-                await MainActor.run { isUploading = false }
-            }
+}
+
+struct FeatureRow: View {
+    let icon: String
+    let text: String
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon).foregroundColor(.brandPurple).frame(width: 24)
+            Text(text)
         }
     }
 }
