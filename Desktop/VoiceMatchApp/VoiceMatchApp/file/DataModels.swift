@@ -2,88 +2,246 @@ import Foundation
 import CoreLocation
 import FirebaseFirestore
 
+// MARK: - ボイスプロフィール項目定義
+struct VoiceProfileItem: Identifiable, Codable {
+    var id: String { key }
+    let key: String
+    let displayName: String
+    let allowsEffect: Bool
+    let isRequired: Bool
+    let minDuration: Double
+    let maxDuration: Double
+}
+
+struct VoiceProfileConstants {
+    static let items: [VoiceProfileItem] = [
+        VoiceProfileItem(
+            key: "naturalVoice",
+            displayName: "地声",
+            allowsEffect: false,
+            isRequired: true,
+            minDuration: 1.0,
+            maxDuration: 60.0
+        ),
+        VoiceProfileItem(
+            key: "introduction",
+            displayName: "自己紹介",
+            allowsEffect: true,
+            isRequired: false,
+            minDuration: 0.0,
+            maxDuration: 60.0
+        ),
+        VoiceProfileItem(
+            key: "catchphrase",
+            displayName: "口癖",
+            allowsEffect: true,
+            isRequired: false,
+            minDuration: 0.0,
+            maxDuration: 60.0
+        ),
+        VoiceProfileItem(
+            key: "greeting",
+            displayName: "挨拶",
+            allowsEffect: true,
+            isRequired: false,
+            minDuration: 0.0,
+            maxDuration: 60.0
+        ),
+        VoiceProfileItem(
+            key: "hobby",
+            displayName: "趣味について",
+            allowsEffect: true,
+            isRequired: false,
+            minDuration: 0.0,
+            maxDuration: 60.0
+        )
+    ]
+    
+    static func getItem(by key: String) -> VoiceProfileItem? {
+        return items.first { $0.key == key }
+    }
+}
+
+// MARK: - 保存されるボイスデータ
+struct VoiceProfileData: Codable {
+    var audioURL: String
+    var duration: Double
+    var effectUsed: String?
+}
+
 // MARK: - ユーザープロフィール
 struct UserProfile: Identifiable, Codable {
     var uid: String
     var username: String
-    var profileImageURL: String?
-    var bioAudioURL: String?
-    var bio: String = ""
+    var iconImageURL: String?
     
-    // 詳細プロフィール
-    var profileItems: [String: String] = [:]
-    var privacySettings: [String: Bool] = [:]
-    var notificationSettings: [String: Bool] = ["approach": true, "match": true, "message": true]
+    var voiceProfiles: [String: VoiceProfileData]
     
-    // リスト管理
-    var blockedUserIDs: [String] = []
-    var skippedUserIDs: [String] = []
-    var matchedUserIDs: [String] = []
+    // 選択式プロフィール（単一選択）
+    var profileItems: [String: String]
     
-    // 制限管理
-    var matchCountCurrentCycle: Int = 0
-    var lastMatchDate: Date? = nil
-    var cycleStartTime: Date? = nil
-    var maxMatchesPerCycle: Int = 5
+    // 自由入力プロフィール（複数可）
+    var profileFreeItems: [String: [String]]
     
-    // ステータス
-    var isProUser: Bool = false
-    var isAccountLocked: Bool = false
-    var isAdmin: Bool = false
-    var reportCount: Int = 0
+    // プロフィール項目の公開設定（true = 公開）
+    var profileItemsVisibility: [String: Bool]
     
-    // 位置情報
-    var latitude: Double? = nil
-    var longitude: Double? = nil
-    var isLocationPublic: Bool = false
+    var privacySettings: [String: Bool]
+    var notificationSettings: [String: Bool]
     
-    var fcmToken: String? = nil
+    var blockedUserIDs: [String]
+    var skippedUserIDs: [String]
+    var matchedUserIDs: [String]
+    var likedUserIDs: [String]
+    var receivedLikeUserIDs: [String]
+    
+    var likeCountCurrentCycle: Int
+    var cycleStartTime: Date?
+    
+    var isProUser: Bool
+    var isAccountLocked: Bool
+    var isAdmin: Bool
+    var reportCount: Int
+    
+    var latitude: Double?
+    var longitude: Double?
+    var isLocationPublic: Bool
+    
+    var fcmToken: String?
     
     var id: String { uid }
     
-    // 計算プロパティ
+    var hasNaturalVoice: Bool {
+        return voiceProfiles["naturalVoice"] != nil
+    }
+    
+    var introductionVoice: VoiceProfileData? {
+        return voiceProfiles["introduction"]
+    }
+    
     var location: CLLocation? {
         guard let lat = latitude, let lon = longitude else { return nil }
         return CLLocation(latitude: lat, longitude: lon)
     }
     
-    // カスタムイニシャライザ
+    // 公開されている選択式プロフィール項目を取得
+    var publicProfileItems: [String: String] {
+        var result: [String: String] = [:]
+        for (key, value) in profileItems {
+            if profileItemsVisibility[key] == true && !value.isEmpty && value != "未設定" {
+                result[key] = value
+            }
+        }
+        return result
+    }
+    
+    // 公開されている自由入力プロフィール項目を取得
+    var publicProfileFreeItems: [String: [String]] {
+        var result: [String: [String]] = [:]
+        for (key, values) in profileFreeItems {
+            if profileItemsVisibility[key] == true && !values.isEmpty {
+                result[key] = values
+            }
+        }
+        return result
+    }
+    
+    enum CodingKeys: String, CodingKey {
+        case uid, username, iconImageURL, voiceProfiles
+        case profileItems, profileFreeItems, profileItemsVisibility
+        case privacySettings, notificationSettings
+        case blockedUserIDs, skippedUserIDs, matchedUserIDs
+        case likedUserIDs, receivedLikeUserIDs
+        case likeCountCurrentCycle, cycleStartTime
+        case isProUser, isAccountLocked, isAdmin, reportCount
+        case latitude, longitude, isLocationPublic, fcmToken
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        
+        uid = try container.decode(String.self, forKey: .uid)
+        username = try container.decode(String.self, forKey: .username)
+        iconImageURL = try container.decodeIfPresent(String.self, forKey: .iconImageURL)
+        
+        voiceProfiles = try container.decodeIfPresent([String: VoiceProfileData].self, forKey: .voiceProfiles) ?? [:]
+        profileItems = try container.decodeIfPresent([String: String].self, forKey: .profileItems) ?? [:]
+        profileFreeItems = try container.decodeIfPresent([String: [String]].self, forKey: .profileFreeItems) ?? [:]
+        profileItemsVisibility = try container.decodeIfPresent([String: Bool].self, forKey: .profileItemsVisibility) ?? [:]
+        privacySettings = try container.decodeIfPresent([String: Bool].self, forKey: .privacySettings) ?? [:]
+        notificationSettings = try container.decodeIfPresent([String: Bool].self, forKey: .notificationSettings) ?? ["like": true, "match": true, "message": true]
+        
+        blockedUserIDs = try container.decodeIfPresent([String].self, forKey: .blockedUserIDs) ?? []
+        skippedUserIDs = try container.decodeIfPresent([String].self, forKey: .skippedUserIDs) ?? []
+        matchedUserIDs = try container.decodeIfPresent([String].self, forKey: .matchedUserIDs) ?? []
+        likedUserIDs = try container.decodeIfPresent([String].self, forKey: .likedUserIDs) ?? []
+        receivedLikeUserIDs = try container.decodeIfPresent([String].self, forKey: .receivedLikeUserIDs) ?? []
+        
+        likeCountCurrentCycle = try container.decodeIfPresent(Int.self, forKey: .likeCountCurrentCycle) ?? 0
+        cycleStartTime = try container.decodeIfPresent(Date.self, forKey: .cycleStartTime)
+        
+        isProUser = try container.decodeIfPresent(Bool.self, forKey: .isProUser) ?? false
+        isAccountLocked = try container.decodeIfPresent(Bool.self, forKey: .isAccountLocked) ?? false
+        isAdmin = try container.decodeIfPresent(Bool.self, forKey: .isAdmin) ?? false
+        reportCount = try container.decodeIfPresent(Int.self, forKey: .reportCount) ?? 0
+        
+        latitude = try container.decodeIfPresent(Double.self, forKey: .latitude)
+        longitude = try container.decodeIfPresent(Double.self, forKey: .longitude)
+        isLocationPublic = try container.decodeIfPresent(Bool.self, forKey: .isLocationPublic) ?? false
+        
+        fcmToken = try container.decodeIfPresent(String.self, forKey: .fcmToken)
+    }
+    
     init(
         uid: String,
         username: String,
-        profileImageURL: String? = nil,
-        bioAudioURL: String? = nil,
-        bio: String = "",
+        iconImageURL: String? = nil,
+        voiceProfiles: [String: VoiceProfileData] = [:],
         profileItems: [String: String] = [:],
+        profileFreeItems: [String: [String]] = [:],
+        profileItemsVisibility: [String: Bool] = [:],
         privacySettings: [String: Bool] = [:],
-        notificationSettings: [String: Bool] = ["approach": true, "match": true, "message": true],
+        notificationSettings: [String: Bool] = ["like": true, "match": true, "message": true],
         blockedUserIDs: [String] = [],
         skippedUserIDs: [String] = [],
         matchedUserIDs: [String] = [],
-        matchCountCurrentCycle: Int = 0,
-        lastMatchDate: Date? = nil,
-        isProUser: Bool = false,
-        fcmToken: String? = nil,
+        likedUserIDs: [String] = [],
+        receivedLikeUserIDs: [String] = [],
+        likeCountCurrentCycle: Int = 0,
         cycleStartTime: Date? = nil,
-        maxMatchesPerCycle: Int = 5
+        isProUser: Bool = false,
+        isAccountLocked: Bool = false,
+        isAdmin: Bool = false,
+        reportCount: Int = 0,
+        latitude: Double? = nil,
+        longitude: Double? = nil,
+        isLocationPublic: Bool = false,
+        fcmToken: String? = nil
     ) {
         self.uid = uid
         self.username = username
-        self.profileImageURL = profileImageURL
-        self.bioAudioURL = bioAudioURL
-        self.bio = bio
+        self.iconImageURL = iconImageURL
+        self.voiceProfiles = voiceProfiles
         self.profileItems = profileItems
+        self.profileFreeItems = profileFreeItems
+        self.profileItemsVisibility = profileItemsVisibility
         self.privacySettings = privacySettings
         self.notificationSettings = notificationSettings
         self.blockedUserIDs = blockedUserIDs
         self.skippedUserIDs = skippedUserIDs
         self.matchedUserIDs = matchedUserIDs
-        self.matchCountCurrentCycle = matchCountCurrentCycle
-        self.lastMatchDate = lastMatchDate
-        self.isProUser = isProUser
-        self.fcmToken = fcmToken
+        self.likedUserIDs = likedUserIDs
+        self.receivedLikeUserIDs = receivedLikeUserIDs
+        self.likeCountCurrentCycle = likeCountCurrentCycle
         self.cycleStartTime = cycleStartTime
-        self.maxMatchesPerCycle = maxMatchesPerCycle
+        self.isProUser = isProUser
+        self.isAccountLocked = isAccountLocked
+        self.isAdmin = isAdmin
+        self.reportCount = reportCount
+        self.latitude = latitude
+        self.longitude = longitude
+        self.isLocationPublic = isLocationPublic
+        self.fcmToken = fcmToken
     }
 }
 
@@ -104,38 +262,74 @@ struct UserMatch: Identifiable, Codable {
     }
 }
 
-// MARK: - アプローチ/メッセージ
-struct Message: Identifiable, Codable {
+// MARK: - いいね
+struct Like: Identifiable, Codable {
     @DocumentID var id: String?
-    let senderID: String
-    let receiverID: String
-    let audioURL: String
-    let duration: Double
+    let fromUserID: String
+    let toUserID: String
     let createdAt: Date
-    var isRead: Bool = false
-    var isMatched: Bool = false
+    var status: LikeStatus
     
-    // 受信箱で表示するための送信者情報
-    var senderName: String?
-    var senderIconURL: String?
+    enum CodingKeys: String, CodingKey {
+        case id, fromUserID, toUserID, createdAt, status
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(String.self, forKey: .id)
+        fromUserID = try container.decode(String.self, forKey: .fromUserID)
+        toUserID = try container.decode(String.self, forKey: .toUserID)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        status = try container.decodeIfPresent(LikeStatus.self, forKey: .status) ?? .pending
+    }
+    
+    init(fromUserID: String, toUserID: String, createdAt: Date, status: LikeStatus = .pending) {
+        self.fromUserID = fromUserID
+        self.toUserID = toUserID
+        self.createdAt = createdAt
+        self.status = status
+    }
 }
 
-// MARK: - ボイスメッセージ詳細（チャット内）
+enum LikeStatus: String, Codable {
+    case pending = "pending"
+    case accepted = "accepted"
+    case declined = "declined"
+}
+
+// MARK: - ボイスメッセージ
 struct VoiceMessage: Identifiable, Codable {
     @DocumentID var id: String?
     let senderID: String
     let audioURL: String
     let duration: Double
     let timestamp: Date
-    var listenCount: Int = 0
-    var effectUsed: String = "Normal"
-    var waveformSamples: [Float]?
-}
-
-// MARK: - 録音モード
-enum RecordingMode {
-    case approach
-    case chatReply(matchID: String)
+    var isRead: Bool
+    var effectUsed: String?
+    
+    enum CodingKeys: String, CodingKey {
+        case id, senderID, audioURL, duration, timestamp, isRead, effectUsed
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(String.self, forKey: .id)
+        senderID = try container.decode(String.self, forKey: .senderID)
+        audioURL = try container.decode(String.self, forKey: .audioURL)
+        duration = try container.decode(Double.self, forKey: .duration)
+        timestamp = try container.decode(Date.self, forKey: .timestamp)
+        isRead = try container.decodeIfPresent(Bool.self, forKey: .isRead) ?? false
+        effectUsed = try container.decodeIfPresent(String.self, forKey: .effectUsed)
+    }
+    
+    init(senderID: String, audioURL: String, duration: Double, timestamp: Date, isRead: Bool = false, effectUsed: String? = nil) {
+        self.senderID = senderID
+        self.audioURL = audioURL
+        self.duration = duration
+        self.timestamp = timestamp
+        self.isRead = isRead
+        self.effectUsed = effectUsed
+    }
 }
 
 // MARK: - 通報データ

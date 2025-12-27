@@ -1,34 +1,30 @@
 import SwiftUI
 import AuthenticationServices
-import CryptoKit
 
-struct AuthenticationView: View {
+struct AuthView: View {
     @EnvironmentObject var authService: AuthService
     
+    @State private var isLoginMode = true
     @State private var email = ""
     @State private var password = ""
-    @State private var isSignUp = false
-    @State private var showError = false
-    @State private var errorMessage = ""
-    @State private var isLoading = false
+    @State private var confirmPassword = ""
+    @State private var showResetPassword = false
     
     var body: some View {
         NavigationView {
             ZStack {
                 // 背景グラデーション
                 LinearGradient(
-                    colors: [Color.brandPurple.opacity(0.8), Color.brandPurple.opacity(0.4)],
+                    colors: [Color.brandPurple.opacity(0.8), Color.brandPurple],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
                 .ignoresSafeArea()
                 
                 ScrollView {
-                    VStack(spacing: 30) {
-                        Spacer().frame(height: 60)
-                        
-                        // ロゴ・タイトル
-                        VStack(spacing: 12) {
+                    VStack(spacing: 24) {
+                        // ロゴ
+                        VStack(spacing: 10) {
                             Image(systemName: "waveform.circle.fill")
                                 .font(.system(size: 80))
                                 .foregroundColor(.white)
@@ -42,48 +38,41 @@ struct AuthenticationView: View {
                                 .font(.subheadline)
                                 .foregroundColor(.white.opacity(0.8))
                         }
+                        .padding(.top, 50)
                         
-                        Spacer().frame(height: 20)
-                        
-                        // 入力フォーム
-                        VStack(spacing: 16) {
-                            TextField("メールアドレス", text: $email)
-                                .textFieldStyle(AuthTextFieldStyle())
-                                .autocapitalization(.none)
-                                .keyboardType(.emailAddress)
-                            
-                            SecureField("パスワード", text: $password)
-                                .textFieldStyle(AuthTextFieldStyle())
-                            
-                            // ログイン/登録ボタン
-                            Button(action: {
-                                performAuth()
-                            }) {
-                                if isLoading {
-                                    ProgressView()
-                                        .tint(.white)
-                                } else {
-                                    Text(isSignUp ? "アカウント作成" : "ログイン")
-                                        .fontWeight(.bold)
+                        // ソーシャルログイン
+                        VStack(spacing: 12) {
+                            // Apple でログイン
+                            SignInWithAppleButton(
+                                onRequest: { request in
+                                    authService.handleAppleSignInRequest(request)
+                                },
+                                onCompletion: { result in
+                                    authService.handleAppleSignInCompletion(result)
                                 }
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(Color.white)
-                            .foregroundColor(.brandPurple)
-                            .cornerRadius(12)
-                            .disabled(isLoading)
+                            )
+                            .signInWithAppleButtonStyle(.white)
+                            .frame(height: 50)
+                            .cornerRadius(10)
                             
-                            // 切り替えボタン
+                            // Google でログイン
                             Button(action: {
-                                isSignUp.toggle()
+                                authService.signInWithGoogle()
                             }) {
-                                Text(isSignUp ? "すでにアカウントをお持ちの方" : "新規登録はこちら")
-                                    .foregroundColor(.white)
-                                    .underline()
+                                HStack(spacing: 10) {
+                                    Image(systemName: "g.circle.fill")
+                                        .font(.title2)
+                                    Text("Googleでログイン")
+                                        .fontWeight(.medium)
+                                }
+                                .foregroundColor(.black)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 50)
+                                .background(Color.white)
+                                .cornerRadius(10)
                             }
                         }
-                        .padding(.horizontal, 30)
+                        .padding(.horizontal)
                         
                         // 区切り線
                         HStack {
@@ -91,147 +80,209 @@ struct AuthenticationView: View {
                                 .fill(Color.white.opacity(0.5))
                                 .frame(height: 1)
                             Text("または")
-                                .foregroundColor(.white.opacity(0.8))
                                 .font(.caption)
+                                .foregroundColor(.white.opacity(0.8))
                             Rectangle()
                                 .fill(Color.white.opacity(0.5))
                                 .frame(height: 1)
                         }
-                        .padding(.horizontal, 30)
+                        .padding(.horizontal)
                         
-                        // ソーシャルログイン
-                        VStack(spacing: 12) {
-                            // Apple
-                            SignInWithAppleButton(.signIn) { request in
-                                let nonce = authService.prepareAppleSignIn()
-                                request.requestedScopes = [.email, .fullName]
-                                request.nonce = nonce
-                            } onCompletion: { result in
-                                handleAppleSignIn(result)
+                        // メール/パスワードフォーム
+                        VStack(spacing: 16) {
+                            // モード切り替え
+                            Picker("", selection: $isLoginMode) {
+                                Text("ログイン").tag(true)
+                                Text("新規登録").tag(false)
                             }
-                            .signInWithAppleButtonStyle(.white)
-                            .frame(height: 50)
-                            .cornerRadius(12)
+                            .pickerStyle(.segmented)
                             
-                            // Google（オプション）
-                            Button(action: {
-                                signInWithGoogle()
-                            }) {
-                                HStack {
-                                    Image(systemName: "g.circle.fill")
-                                    Text("Googleでログイン")
+                            // メールアドレス
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("メールアドレス")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                
+                                TextField("example@email.com", text: $email)
+                                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                                    .textContentType(.emailAddress)
+                                    .keyboardType(.emailAddress)
+                                    .autocapitalization(.none)
+                            }
+                            
+                            // パスワード
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("パスワード")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                
+                                SecureField("6文字以上", text: $password)
+                                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                                    .textContentType(isLoginMode ? .password : .newPassword)
+                            }
+                            
+                            // 確認用パスワード（新規登録時のみ）
+                            if !isLoginMode {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text("パスワード（確認）")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                    
+                                    SecureField("もう一度入力", text: $confirmPassword)
+                                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                                        .textContentType(.newPassword)
                                 }
-                                .frame(maxWidth: .infinity)
-                                .padding()
-                                .background(Color.white)
-                                .foregroundColor(.black)
-                                .cornerRadius(12)
                             }
                             
-                            // ゲストログイン
-                            Button(action: {
-                                signInAnonymously()
-                            }) {
-                                Text("ゲストとして始める")
-                                    .foregroundColor(.white.opacity(0.8))
-                                    .underline()
+                            // エラーメッセージ
+                            if let error = authService.errorMessage {
+                                Text(error)
+                                    .font(.caption)
+                                    .foregroundColor(.red)
+                                    .padding(.horizontal)
                             }
-                            .padding(.top, 10)
+                            
+                            // メインボタン
+                            Button(action: authenticate) {
+                                if authService.isLoading {
+                                    ProgressView()
+                                        .tint(.white)
+                                } else {
+                                    Text(isLoginMode ? "ログイン" : "新規登録")
+                                        .fontWeight(.bold)
+                                }
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.brandPurple)
+                            .foregroundColor(.white)
+                            .cornerRadius(10)
+                            .disabled(authService.isLoading || !isFormValid)
+                            .opacity(isFormValid ? 1 : 0.6)
+                            
+                            // パスワードリセット
+                            if isLoginMode {
+                                Button("パスワードを忘れた方はこちら") {
+                                    showResetPassword = true
+                                }
+                                .font(.caption)
+                                .foregroundColor(.brandPurple)
+                            }
                         }
-                        .padding(.horizontal, 30)
+                        .padding()
+                        .background(Color.white)
+                        .cornerRadius(20)
+                        .padding(.horizontal)
                         
-                        Spacer()
+                        Spacer().frame(height: 50)
                     }
                 }
             }
-            .navigationBarHidden(true)
-            .alert("エラー", isPresented: $showError) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text(errorMessage)
+            .sheet(isPresented: $showResetPassword) {
+                ResetPasswordView()
+                    .environmentObject(authService)
             }
         }
     }
     
-    // MARK: - 認証処理
-    
-    private func performAuth() {
-        guard !email.isEmpty, !password.isEmpty else {
-            errorMessage = "メールアドレスとパスワードを入力してください"
-            showError = true
-            return
+    private var isFormValid: Bool {
+        if isLoginMode {
+            return !email.isEmpty && !password.isEmpty
+        } else {
+            return !email.isEmpty && password.count >= 6 && password == confirmPassword
         }
-        
-        isLoading = true
-        
+    }
+    
+    private func authenticate() {
         Task {
             do {
-                if isSignUp {
-                    try await authService.signUp(email: email, password: password)
-                } else {
+                if isLoginMode {
                     try await authService.signIn(email: email, password: password)
+                } else {
+                    try await authService.signUp(email: email, password: password)
                 }
             } catch {
-                errorMessage = error.localizedDescription
-                showError = true
-            }
-            isLoading = false
-        }
-    }
-    
-    private func signInWithGoogle() {
-        Task {
-            do {
-                try await authService.signInWithGoogle()
-            } catch {
-                errorMessage = error.localizedDescription
-                showError = true
+                print("認証エラー: \(error)")
             }
         }
     }
+}
+
+// MARK: - パスワードリセット画面
+
+struct ResetPasswordView: View {
+    @EnvironmentObject var authService: AuthService
+    @Environment(\.dismiss) var dismiss
     
-    private func signInAnonymously() {
-        Task {
-            do {
-                try await authService.signInAnonymously()
-            } catch {
-                errorMessage = error.localizedDescription
-                showError = true
-            }
-        }
-    }
+    @State private var email = ""
+    @State private var showSuccess = false
     
-    private func handleAppleSignIn(_ result: Result<ASAuthorization, Error>) {
-        switch result {
-        case .success(let authorization):
-            if let appleIDCredential = authorization.credential as? ASAuthorizationAppleIDCredential {
-                Task {
-                    do {
-                        try await authService.signInWithApple(credential: appleIDCredential)
-                    } catch {
-                        errorMessage = error.localizedDescription
-                        showError = true
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 20) {
+                Text("パスワードリセット")
+                    .font(.title2)
+                    .fontWeight(.bold)
+                
+                Text("登録したメールアドレスを入力してください。パスワードリセット用のリンクを送信します。")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
+                
+                TextField("メールアドレス", text: $email)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .textContentType(.emailAddress)
+                    .keyboardType(.emailAddress)
+                    .autocapitalization(.none)
+                    .padding(.horizontal)
+                
+                if let error = authService.errorMessage {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundColor(.red)
+                }
+                
+                Button(action: resetPassword) {
+                    if authService.isLoading {
+                        ProgressView()
+                    } else {
+                        Text("リセットメールを送信")
                     }
                 }
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(Color.brandPurple)
+                .foregroundColor(.white)
+                .cornerRadius(10)
+                .padding(.horizontal)
+                .disabled(email.isEmpty || authService.isLoading)
+                
+                Spacer()
             }
-        case .failure(let error):
-            errorMessage = error.localizedDescription
-            showError = true
+            .padding(.top, 30)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("閉じる") { dismiss() }
+                }
+            }
+            .alert("送信完了", isPresented: $showSuccess) {
+                Button("OK") { dismiss() }
+            } message: {
+                Text("パスワードリセット用のメールを送信しました。メールを確認してください。")
+            }
         }
     }
-}
-
-// MARK: - カスタムテキストフィールドスタイル
-struct AuthTextFieldStyle: TextFieldStyle {
-    func _body(configuration: TextField<Self._Label>) -> some View {
-        configuration
-            .padding()
-            .background(Color.white.opacity(0.9))
-            .cornerRadius(12)
+    
+    private func resetPassword() {
+        Task {
+            do {
+                try await authService.resetPassword(email: email)
+                showSuccess = true
+            } catch {
+                print("パスワードリセットエラー: \(error)")
+            }
+        }
     }
-}
-
-#Preview {
-    AuthenticationView()
-        .environmentObject(AuthService())
 }

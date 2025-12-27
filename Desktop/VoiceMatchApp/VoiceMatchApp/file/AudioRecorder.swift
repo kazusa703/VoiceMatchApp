@@ -2,77 +2,153 @@ import Foundation
 import AVFoundation
 import Combine
 
-class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
+class AudioRecorder: NSObject, ObservableObject {
     @Published var isRecording = false
     @Published var recordingURL: URL?
-    @Published var recordingDuration: TimeInterval = 0
-    @Published var soundSamples: [Float] = [] // 波形表示用
+    @Published var hasPermission = false
+    @Published var errorMessage: String?
     
     private var audioRecorder: AVAudioRecorder?
-    private var timer: Timer?
+    
+    override init() {
+        super.init()
+        checkPermission()
+    }
+    
+    // MARK: - Permission
+    
+    func checkPermission() {
+        switch AVAudioSession.sharedInstance().recordPermission {
+        case .granted:
+            hasPermission = true
+        case .denied:
+            hasPermission = false
+            errorMessage = "マイクへのアクセスが拒否されています。設定から許可してください。"
+        case .undetermined:
+            requestPermission()
+        @unknown default:
+            hasPermission = false
+        }
+    }
+    
+    func requestPermission() {
+        AVAudioSession.sharedInstance().requestRecordPermission { [weak self] granted in
+            DispatchQueue.main.async {
+                self?.hasPermission = granted
+                if !granted {
+                    self?.errorMessage = "マイクへのアクセスが許可されていません。"
+                }
+            }
+        }
+    }
+    
+    // MARK: - Recording
     
     func startRecording() {
-        let session = AVAudioSession.sharedInstance()
-        do {
-            try session.setCategory(.playAndRecord, mode: .default)
-            try session.setActive(true)
-        } catch {
-            print("Audio Session Error: \(error)")
+        guard hasPermission else {
+            errorMessage = "マイクへのアクセスが許可されていません。"
+            requestPermission()
+            return
         }
         
-        let fileName = UUID().uuidString + ".m4a"
-        let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent(fileName)
+        // 録音セッションの設定
+        let session = AVAudioSession.sharedInstance()
+        do {
+            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
+            try session.setActive(true)
+        } catch {
+            errorMessage = "オーディオセッションの設定に失敗しました: \(error.localizedDescription)"
+            return
+        }
         
+        // 録音ファイルのパス
+        let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let fileName = "recording_\(Date().timeIntervalSince1970).m4a"
+        let audioURL = documentsPath.appendingPathComponent(fileName)
+        
+        // 録音設定
         let settings: [String: Any] = [
             AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
-            AVSampleRateKey: 44100,
+            AVSampleRateKey: 44100.0,
             AVNumberOfChannelsKey: 1,
             AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
         ]
         
         do {
-            audioRecorder = try AVAudioRecorder(url: url, settings: settings)
+            audioRecorder = try AVAudioRecorder(url: audioURL, settings: settings)
             audioRecorder?.delegate = self
-            audioRecorder?.isMeteringEnabled = true
+            audioRecorder?.prepareToRecord()
             audioRecorder?.record()
             
+            recordingURL = audioURL
             isRecording = true
-            recordingURL = nil
-            recordingDuration = 0
-            soundSamples = []
+            errorMessage = nil
             
-            startMonitoring()
+            print("🎙️ 録音開始: \(audioURL.path)")
         } catch {
-            print("Recording Error: \(error)")
+            errorMessage = "録音の開始に失敗しました: \(error.localizedDescription)"
+            print("🎙️ 録音開始エラー: \(error)")
         }
     }
     
     func stopRecording() {
         audioRecorder?.stop()
         isRecording = false
-        recordingURL = audioRecorder?.url
-        stopMonitoring()
-    }
-    
-    private func startMonitoring() {
-        timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
-            guard let recorder = self.audioRecorder else { return }
-            recorder.updateMeters()
-            self.recordingDuration = recorder.currentTime
+        
+        // セッションを非アクティブに
+        do {
+            try AVAudioSession.sharedInstance().setActive(false)
+        } catch {
+            print("🎙️ セッション非アクティブ化エラー: \(error)")
+        }
+        
+        if let url = recordingURL {
+            print("🎙️ 録音停止: \(url.path)")
             
-            // 波形用データの更新 (-160dB 〜 0dB を 0.0 〜 1.0 に正規化)
-            let power = recorder.averagePower(forChannel: 0)
-            let normalized = max(0, (power + 50) / 50)
-            
-            if self.soundSamples.count > 50 {
-                self.soundSamples.removeFirst()
+            // ファイルサイズを確認
+            if let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+               let fileSize = attributes[.size] as? Int64 {
+                print("🎙️ ファイルサイズ: \(fileSize) bytes")
             }
-            self.soundSamples.append(normalized)
         }
     }
     
-    private func stopMonitoring() {
-        timer?.invalidate()
-        timer = nil
+    func resetRecording() {
+        // 既存の録音ファイルを削除
+        if let url = recordingURL {
+            try? FileManager.default.removeItem(at: url)
+            print("🎙️ 録音ファイル削除: \(url.path)")
+        }
+        
+        recordingURL = nil
+        isRecording = false
+        errorMessage = nil
+    }
+    
+    // MARK: - Cleanup
+    
+    func cleanup() {
+        stopRecording()
+        resetRecording()
+    }
+}
+
+// MARK: - AVAudioRecorderDelegate
+
+extension AudioRecorder: AVAudioRecorderDelegate {
+    func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {
+        if !flag {
+            errorMessage = "録音が正常に完了しませんでした。"
+            print("🎙️ 録音失敗")
+        } else {
+            print("🎙️ 録音完了")
+        }
+    }
+    
+    func audioRecorderEncodeErrorDidOccur(_ recorder: AVAudioRecorder, error: Error?) {
+        if let error = error {
+            errorMessage = "エンコードエラー: \(error.localizedDescription)"
+            print("🎙️ エンコードエラー: \(error)")
+        }
     }
 }

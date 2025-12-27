@@ -1,200 +1,369 @@
 import SwiftUI
 
 struct FilterView: View {
+    @EnvironmentObject var userService: UserService
+    @Environment(\.dismiss) var dismiss
+    
     @Binding var filterConditions: [String: String]
     @Binding var minCommonPoints: Int
     @Binding var commonPointsMode: String
     @Binding var maxDistance: Double
     
-    @EnvironmentObject var purchaseManager: PurchaseManager
-    @EnvironmentObject var userService: UserService
-    @Environment(\.dismiss) var dismiss
+    // 自由入力フィルター
+    @State private var freeInputFilters: [String: [String]] = [:]
     
-    @State private var showPaywall = false
-    @State private var showLocationAlert = false
-    @State private var alertMessage = ""
-    @State private var showAlert = false
+    // MARK: - Computed Properties
+    
+    // 現在の条件でのヒット数を計算（いいね済みを除外）
+    private var filteredHitCount: Int {
+        var users = userService.discoveryUsers
+        
+        // 1. いいね済みユーザーを除外
+        let likedUserIDs = userService.currentUserProfile?.likedUserIDs ?? []
+        users = users.filter { !likedUserIDs.contains($0.uid) }
+        
+        // 2. 選択式フィルター（AND検索）
+        for (key, value) in filterConditions {
+            if !value.isEmpty && value != "指定なし" {
+                users = users.filter { $0.profileItems[key] == value }
+            }
+        }
+        
+        // 3. 自由入力フィルター（AND検索・空白無視）
+        for (key, filterValues) in freeInputFilters {
+            if filterValues.isEmpty { continue }
+            users = users.filter { user in
+                let userValues = user.profileFreeItems[key] ?? []
+                // 入力されたタグすべてを含んでいるか (AND)
+                return filterValues.allSatisfy { filterValue in
+                    let normalizedFilter = filterValue
+                        .replacingOccurrences(of: " ", with: "")
+                        .replacingOccurrences(of: "　", with: "")
+                        .lowercased()
+                    
+                    return userValues.contains { userTag in
+                        let normalizedUserTag = userTag
+                            .replacingOccurrences(of: " ", with: "")
+                            .replacingOccurrences(of: "　", with: "")
+                            .lowercased()
+                        return normalizedUserTag.contains(normalizedFilter)
+                    }
+                }
+            }
+        }
+        
+        // 4. 共通点フィルター
+        // Pickerの選択状態(commonPointsMode)から一時的に数値を判定して計算
+        let currentMinPoints: Int
+        switch commonPointsMode {
+        case "1+": currentMinPoints = 1
+        case "3+": currentMinPoints = 3
+        case "5+": currentMinPoints = 5
+        case "ピッタリ": currentMinPoints = minCommonPoints // 将来的な拡張用
+        default: currentMinPoints = 0
+        }
+        
+        if currentMinPoints > 0 {
+            users = users.filter { user in
+                let commonPoints = userService.calculateCommonPoints(with: user)
+                if commonPointsMode == "ピッタリ" {
+                    return commonPoints == currentMinPoints
+                } else {
+                    return commonPoints >= currentMinPoints
+                }
+            }
+        }
+        
+        return users.count
+    }
+    
+    // MARK: - Body
     
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Button("閉じる") { dismiss() }.foregroundColor(.primary)
-                Spacer()
-                Text("条件設定").font(.headline)
-                Spacer()
-                Text("閉じる").opacity(0)
-            }
-            .padding()
-            .background(Color.white)
-            
-            ScrollView {
-                VStack(spacing: 24) {
-                    
-                    // --- 共通点 ---
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("共通点の条件").font(.headline).foregroundColor(.secondary)
-                        
-                        VStack(spacing: 20) {
-                            HStack {
-                                Image(systemName: "sparkles").foregroundColor(.yellow)
-                                Text("共通点: \(minCommonPoints)個以上").fontWeight(.bold)
-                                Spacer()
-                            }
-                            
-                            Slider(value: Binding(
-                                get: { Double(minCommonPoints) },
-                                set: { minCommonPoints = Int($0) }
-                            ), in: 0...10, step: 1).tint(.brandPurple)
-                            
-                            Picker("モード", selection: $commonPointsMode) {
-                                Text("〜個以上").tag("以上")
-                                Text("ピッタリ").tag("ピッタリ")
-                            }
-                            .pickerStyle(.segmented)
-                        }
-                        .padding().background(Color.white).cornerRadius(20)
-                    }
-                    
-                    // --- 距離 ---
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack {
-                            Text("距離で絞り込む").font(.headline).foregroundColor(.secondary)
-                            Button(action: { showLocationAlert = true }) {
-                                Image(systemName: "info.circle").foregroundColor(.gray)
-                            }
-                        }
-                        
-                        VStack(spacing: 20) {
-                            HStack {
-                                Text("検索範囲")
-                                Spacer()
-                                Text(maxDistance >= 100 ? "制限なし" : "\(Int(maxDistance))km以内")
-                                    .foregroundColor(.brandPurple).fontWeight(.bold)
-                            }
-                            
-                            if purchaseManager.isPro {
-                                Slider(value: Binding(
-                                    get: { maxDistance },
-                                    set: { val in
-                                        maxDistance = val
-                                        if val < 100 && userService.currentUserProfile?.location == nil {
-                                            showLocationAlert = true
-                                        }
-                                    }
-                                ), in: 5...100, step: 5).tint(.brandPurple)
-                            } else {
-                                VStack(spacing: 12) {
-                                    HStack {
-                                        Image(systemName: "lock.fill")
-                                        Text("距離フィルタはProプラン限定機能です")
-                                    }.font(.caption).foregroundColor(.secondary)
-                                    
-                                    Button("Proプランを見る") { showPaywall = true }
-                                        .font(.caption.bold()).foregroundColor(.brandPurple)
-                                }
-                            }
-                        }
-                        .padding().background(Color.white).cornerRadius(20)
-                    }
-                    
-                    // --- 必須条件 ---
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("必須条件 (絶対に譲れない項目)").font(.headline).foregroundColor(.secondary)
-                        
-                        VStack(spacing: 0) {
-                            if filterConditions.isEmpty {
-                                Text("設定なし").foregroundColor(.gray).padding().frame(maxWidth: .infinity, alignment: .leading)
-                            } else {
-                                ForEach(Array(filterConditions.keys), id: \.self) { key in
-                                    if let def = ProfileConstants.items.first(where: { $0.key == key }) {
-                                        HStack {
-                                            Text(def.displayName).foregroundColor(.secondary)
-                                            Spacer()
-                                            Text(filterConditions[key] ?? "").fontWeight(.medium)
-                                            Button(action: { filterConditions.removeValue(forKey: key) }) {
-                                                Image(systemName: "xmark.circle.fill").foregroundColor(.gray)
-                                            }
-                                        }
-                                        .padding()
-                                        Divider()
-                                    }
-                                }
-                            }
-                            
-                            // 条件追加メニュー
-                            Menu {
-                                if !purchaseManager.isPro && filterConditions.count >= 1 {
-                                    Button("無料プランは1つまでです") {
-                                        alertMessage = "無料プランでは絞り込み条件は1つまでです。"
-                                        showAlert = true
-                                    }
-                                } else {
-                                    ForEach(ProfileConstants.items, id: \.key) { item in
-                                        Menu(item.displayName) {
-                                            ForEach(Array(Set(item.options)).sorted(), id: \.self) { option in
-                                                Button(option) { filterConditions[item.key] = option }
-                                            }
-                                        }
-                                    }
-                                }
-                            } label: {
-                                HStack {
-                                    Image(systemName: "plus.circle.fill")
-                                    Text("条件を追加する")
-                                    Spacer()
-                                    Image(systemName: "chevron.right")
-                                }
-                                .foregroundColor(.primary).padding()
-                            }
-                            
-                            // Pro特典
-                            HStack {
-                                Image(systemName: "crown.fill").foregroundColor(.yellow)
-                                Text("Proなら必須条件を無制限に追加可能")
-                                    .font(.caption)
-                                    .foregroundColor(.brandPurple)
-                            }
-                            .padding()
-                        }
-                        .background(Color.white).cornerRadius(20)
-                    }
-                    
-                    Button("条件をリセット") {
-                        filterConditions.removeAll()
-                        minCommonPoints = 0
-                        maxDistance = 100
-                    }
-                    .foregroundColor(.red).padding(.top)
-                    
-                    Spacer(minLength: 50)
-                }
-                .padding()
-            }
-            .background(Color(uiColor: .systemGroupedBackground))
-            
-            Button(action: { dismiss() }) {
+        NavigationView {
+            VStack(spacing: 0) {
+                // ヒット数表示（ヘッダーの下、ScrollViewの前）
                 HStack {
-                    Image(systemName: "magnifyingglass")
-                    Text("この条件で検索して探す")
+                    Image(systemName: "person.2.fill")
+                        .foregroundColor(.brandPurple)
+                    Text("\(filteredHitCount)人がヒット")
+                        .font(.headline)
+                        .foregroundColor(.brandPurple)
+                    Text("（いいね済み除外）")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
-                .fontWeight(.bold).frame(maxWidth: .infinity).padding()
-                .background(Color.brandPurple).foregroundColor(.white).cornerRadius(30)
+                .padding(.vertical, 12)
+                .frame(maxWidth: .infinity)
+                .background(Color.brandPurple.opacity(0.1))
+                
+                Form {
+                    // 選択式フィルター
+                    Section(header: Text("基本条件")) {
+                        ForEach(ProfileConstants.selectionItems, id: \.key) { itemDef in
+                            HStack {
+                                Text(itemDef.displayName)
+                                Spacer()
+                                Picker("", selection: Binding(
+                                    get: { filterConditions[itemDef.key] ?? "指定なし" },
+                                    set: { filterConditions[itemDef.key] = $0 == "指定なし" ? nil : $0 }
+                                )) {
+                                    Text("指定なし").tag("指定なし")
+                                    ForEach(itemDef.options, id: \.self) { option in
+                                        Text(option).tag(option)
+                                    }
+                                }
+                                .pickerStyle(.menu)
+                                .labelsHidden()
+                            }
+                        }
+                    }
+                    
+                    // 自由入力フィルター
+                    Section(header: Text("趣味・好み")) {
+                        Text("入力した内容と一致するユーザーを検索します（AND検索）")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        
+                        ForEach(ProfileConstants.freeInputItems, id: \.key) { itemDef in
+                            FreeInputFilterRow(
+                                itemDef: itemDef,
+                                selectedValues: Binding(
+                                    get: { freeInputFilters[itemDef.key] ?? [] },
+                                    set: { freeInputFilters[itemDef.key] = $0 }
+                                ),
+                                suggestions: userService.getSuggestionsForKey(itemDef.key)
+                            )
+                        }
+                    }
+                    
+                    // 共通点フィルター
+                    Section(header: Text("共通点")) {
+                        Picker("共通点", selection: $commonPointsMode) {
+                            Text("指定なし").tag("none")
+                            Text("1個以上").tag("1+")
+                            Text("3個以上").tag("3+")
+                            Text("5個以上").tag("5+")
+                        }
+                        .pickerStyle(.segmented)
+                    }
+                    
+                    // リセットボタン
+                    Section {
+                        Button(action: resetFilters) {
+                            HStack {
+                                Spacer()
+                                Text("フィルターをリセット")
+                                    .foregroundColor(.red)
+                                Spacer()
+                            }
+                        }
+                    }
+                }
             }
-            .padding()
-            .background(Color.white)
+            .navigationTitle("絞り込み")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("キャンセル") { dismiss() }
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("適用") {
+                        applyFilters()
+                        dismiss()
+                    }
+                    .fontWeight(.bold)
+                }
+            }
+            .onAppear {
+                // UserServiceから保存済みのフィルターを読み込み
+                freeInputFilters = userService.freeInputFilters
+            }
         }
-        .sheet(isPresented: $showPaywall) { PaywallView() }
-        .alert("制限", isPresented: $showAlert) {
-            Button("キャンセル", role: .cancel) {}
-            Button("Proプランを見る") { showPaywall = true }
-        } message: { Text(alertMessage) }
-        .alert("位置情報", isPresented: $showLocationAlert) {
-            Button("設定を開く") {
-                if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+    }
+    
+    private func resetFilters() {
+        filterConditions = [:]
+        freeInputFilters = [:]
+        commonPointsMode = "none"
+        minCommonPoints = 0
+        maxDistance = 100
+    }
+    
+    private func applyFilters() {
+        // 共通点フィルターの数値変換
+        switch commonPointsMode {
+        case "1+": minCommonPoints = 1
+        case "3+": minCommonPoints = 3
+        case "5+": minCommonPoints = 5
+        default: minCommonPoints = 0
+        }
+        
+        // UserServiceに自由入力フィルターを保存
+        userService.freeInputFilters = freeInputFilters
+    }
+}
+
+// MARK: - 自由入力フィルター行
+
+struct FreeInputFilterRow: View {
+    let itemDef: ProfileItemDefinition
+    @Binding var selectedValues: [String]
+    let suggestions: [String]
+    
+    @State private var inputText = ""
+    @State private var showSuggestions = false
+    @FocusState private var isFocused: Bool
+    
+    // フィルタリングされたサジェスト（空白を無視して部分一致）
+    private var filteredSuggestions: [String] {
+        if inputText.isEmpty {
+            return []
+        }
+        
+        // 入力から空白を除去
+        let normalizedInput = inputText
+            .replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: "　", with: "") // 全角空白も
+            .lowercased()
+        
+        return suggestions.filter { suggestion in
+            // すでに選択済みは除外
+            guard !selectedValues.contains(suggestion) else { return false }
+            
+            // サジェストから空白を除去
+            let normalizedSuggestion = suggestion
+                .replacingOccurrences(of: " ", with: "")
+                .replacingOccurrences(of: "　", with: "")
+                .lowercased()
+            
+            // 空白除去版で部分一致チェック OR 通常の部分一致
+            return normalizedSuggestion.contains(normalizedInput) ||
+                   suggestion.lowercased().contains(inputText.lowercased())
+        }.prefix(5).map { $0 }
+    }
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(itemDef.displayName)
+                .font(.subheadline)
+                .fontWeight(.medium)
+            
+            // 選択済みタグ
+            if !selectedValues.isEmpty {
+                FlowLayout(spacing: 8) {
+                    ForEach(selectedValues, id: \.self) { value in
+                        HStack(spacing: 4) {
+                            Text(value)
+                                .font(.caption)
+                            
+                            Button(action: {
+                                selectedValues.removeAll { $0 == value }
+                            }) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.caption)
+                            }
+                        }
+                        .foregroundColor(.brandPurple)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color.brandPurple.opacity(0.1))
+                        .cornerRadius(15)
+                    }
+                }
             }
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text("距離で絞り込むには位置情報が必要です。")
+            
+            // 入力欄
+            ZStack(alignment: .topLeading) {
+                VStack(spacing: 0) {
+                    HStack {
+                        TextField(itemDef.placeholder, text: $inputText)
+                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                            .focused($isFocused)
+                            .onChange(of: inputText) { _ in
+                                showSuggestions = !inputText.isEmpty && !filteredSuggestions.isEmpty
+                            }
+                            .onSubmit {
+                                addValue(inputText)
+                            }
+                        
+                        Button(action: {
+                            addValue(inputText)
+                        }) {
+                            Image(systemName: "plus.circle.fill")
+                                .foregroundColor(.brandPurple)
+                                .font(.title3)
+                        }
+                        .disabled(inputText.trimmingCharacters(in: .whitespaces).isEmpty)
+                    }
+                    
+                    // サジェストリスト
+                    if showSuggestions && isFocused {
+                        VStack(alignment: .leading, spacing: 0) {
+                            ForEach(filteredSuggestions, id: \.self) { suggestion in
+                                Button(action: {
+                                    addValue(suggestion)
+                                }) {
+                                    HStack {
+                                        // ハイライト表示
+                                        highlightedText(suggestion: suggestion, input: inputText)
+                                        Spacer()
+                                    }
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 10)
+                                    .background(Color.white)
+                                }
+                                
+                                if suggestion != filteredSuggestions.last {
+                                    Divider()
+                                }
+                            }
+                        }
+                        .background(Color.white)
+                        .cornerRadius(8)
+                        .shadow(color: .black.opacity(0.1), radius: 4, x: 0, y: 2)
+                        .padding(.top, 4)
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+    
+    // 入力文字をハイライト表示（一致度に応じてスタイル変更）
+    @ViewBuilder
+    private func highlightedText(suggestion: String, input: String) -> some View {
+        let normalizedInput = input
+            .replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: "　", with: "")
+            .lowercased()
+        
+        let normalizedSuggestion = suggestion
+            .replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: "　", with: "")
+            .lowercased()
+        
+        // マッチしている場合は太字で表示
+        if normalizedSuggestion.contains(normalizedInput) {
+            HStack(spacing: 0) {
+                Text(suggestion)
+                    .foregroundColor(.primary)
+                    .fontWeight(.medium)
+            }
+        } else {
+            HStack(spacing: 0) {
+                Text(suggestion)
+                    .foregroundColor(.secondary)
+            }
+        }
+    }
+    
+    private func addValue(_ value: String) {
+        let trimmed = value.trimmingCharacters(in: .whitespaces)
+        if !trimmed.isEmpty && !selectedValues.contains(trimmed) {
+            selectedValues.append(trimmed)
+            inputText = ""
+            showSuggestions = false
         }
     }
 }

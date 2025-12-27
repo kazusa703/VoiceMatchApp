@@ -1,148 +1,117 @@
 import SwiftUI
-import CoreLocation
+import UserNotifications
 
 struct DiscoveryView: View {
     @EnvironmentObject var userService: UserService
-    @EnvironmentObject var messageService: MessageService
-    @EnvironmentObject var purchaseManager: PurchaseManager
+    @EnvironmentObject var authService: AuthService
+    @StateObject private var audioPlayer = AudioPlayer()
     
-    @StateObject var audioPlayer = AudioPlayer()
-    
+    @State private var isLoading = true
+    @State private var currentIndex = 0
+    @State private var showUserDetail = false
+    @State private var selectedUser: UserProfile?
+    @State private var showLikedUsers = false
     @State private var showFilter = false
-    @State private var showMatchAnimation = false
-    @State private var matchedPartnerName = ""
-    @State private var showDisplaySettings = false
     
-    // フィルタリング用ステート
+    // 絞り込み条件
     @State private var filterConditions: [String: String] = [:]
-    @State private var minCommonPoints = 0
-    @State private var commonPointsMode = "以上"
-    @State private var maxDistance: Double = 100.0
+    @State private var minCommonPoints: Int = 0
+    @State private var commonPointsMode: String = "none"
+    @State private var maxDistance: Double = 100
     
-    // 表示オプション
-    @State private var showMatchedUsers = false
-    @State private var showSkippedUsers = false
+    // 戻る機能用
+    @State private var previousUser: UserProfile?
+    @State private var canGoBack = false
     
-    var filteredUsers: [UserProfile] {
-        let users = userService.discoveryUsers
-        guard let currentUser = userService.currentUserProfile else { return users }
+    // いいね送信後のアラート
+    @State private var showLikeAlert = false
+    @State private var showNotificationPrompt = false
+    
+    // フィルタリングされたユーザーリスト
+    private var filteredUsers: [UserProfile] {
+        var users = userService.discoveryUsers
         
-        return users.filter { user in
-            // ブロック関係
-            if currentUser.blockedUserIDs.contains(user.uid) || user.blockedUserIDs.contains(currentUser.uid) {
-                return false
+        // いいね済みフィルター
+        if !showLikedUsers {
+            users = users.filter { user in
+                !(userService.currentUserProfile?.likedUserIDs.contains(user.uid) ?? false)
             }
-            
-            // 表示オプション
-            let isMatched = currentUser.matchedUserIDs.contains(user.uid)
-            if !showMatchedUsers && isMatched { return false }
-            
-            let isSkipped = currentUser.skippedUserIDs.contains(user.uid)
-            if !showSkippedUsers && isSkipped { return false }
-            
-            // 距離フィルター
-            if maxDistance < 100 {
-                if let myLoc = currentUser.location, let userLoc = user.location {
-                    let distanceInKm = myLoc.distance(from: userLoc) / 1000
-                    if distanceInKm > maxDistance { return false }
-                } else {
-                    return false
-                }
-            }
-            
-            // 共通点フィルター
-            let commonCount = calculateCommonPoints(user: user)
-            if commonPointsMode == "ピッタリ" {
-                if commonCount != minCommonPoints { return false }
-            } else {
-                if commonCount < minCommonPoints { return false }
-            }
-            
-            // 属性フィルター
-            for (key, requiredValue) in filterConditions {
-                guard let userValue = user.profileItems[key], userValue == requiredValue else {
-                    return false
-                }
-            }
-            
-            return true
         }
+        
+        // 選択式絞り込み条件を適用（AND検索）
+        for (key, value) in filterConditions {
+            if !value.isEmpty && value != "指定なし" {
+                users = users.filter { user in
+                    user.profileItems[key] == value
+                }
+            }
+        }
+        
+        // 共通点フィルター
+        if commonPointsMode != "none" && minCommonPoints > 0 {
+            users = users.filter { user in
+                userService.calculateCommonPoints(with: user) >= minCommonPoints
+            }
+        }
+        
+        return users
     }
     
     var body: some View {
         NavigationView {
             ZStack {
-                Color(uiColor: .systemGroupedBackground).ignoresSafeArea()
+                Color(uiColor: .systemGroupedBackground)
+                    .ignoresSafeArea()
                 
-                VStack(spacing: 0) {
-                    // 位置情報アラート
-                    if maxDistance < 100 && userService.currentUserProfile?.location == nil {
-                        VStack(spacing: 8) {
-                            Text("距離で絞り込むには位置情報をオンにしてください")
-                                .font(.caption)
-                                .foregroundColor(.red)
-                            Button("設定を開く") {
-                                if let url = URL(string: UIApplication.openSettingsURLString) {
-                                    UIApplication.shared.open(url)
-                                }
-                            }
-                            .font(.caption.bold())
-                        }
-                        .padding()
-                        .background(Color.white)
+                if isLoading {
+                    VStack(spacing: 16) {
+                        ProgressView()
+                        Text("ユーザーを探しています...")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
-                    
-                    if filteredUsers.isEmpty {
-                        Spacer()
-                        VStack(spacing: 16) {
-                            Image(systemName: "magnifyingglass")
-                                .font(.system(size: 60))
-                                .foregroundColor(.gray)
-                            Text("条件に合うユーザーがいません")
-                                .font(.headline)
-                                .foregroundColor(.secondary)
-                            
-                            Button("条件をクリア") {
-                                filterConditions.removeAll()
-                                minCommonPoints = 0
-                                maxDistance = 100.0
-                            }
-                            .foregroundColor(.brandPurple)
-                        }
-                        Spacer()
-                    } else {
-                        ScrollView {
-                            LazyVStack(spacing: 15) {
-                                ForEach(filteredUsers) { user in
-                                    UserDiscoveryCard(
-                                        user: user,
-                                        audioPlayer: audioPlayer,
-                                        commonPoints: calculateCommonPoints(user: user),
-                                        distanceText: calculateDistanceInfo(targetUser: user),
-                                        onSkip: {
-                                            Task { await userService.skipUser(targetUID: user.uid) }
-                                        }
-                                    )
-                                }
-                            }
-                            .padding()
-                        }
-                    }
+                } else if filteredUsers.isEmpty {
+                    emptyStateView
+                } else {
+                    userCardView
                 }
             }
             .navigationTitle("探す")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button(action: { showDisplaySettings = true }) {
-                        Image(systemName: "eye.circle").foregroundColor(.primary)
+                    HStack(spacing: 12) {
+                        // いいね済み表示トグル
+                        Button(action: {
+                            showLikedUsers.toggle()
+                            currentIndex = 0
+                        }) {
+                            Image(systemName: showLikedUsers ? "heart.fill" : "heart.slash")
+                                .foregroundColor(showLikedUsers ? .pink : .gray)
+                        }
+                        
+                        // 絞り込みボタン
+                        Button(action: {
+                            showFilter = true
+                        }) {
+                            Image(systemName: "slider.horizontal.3")
+                                .foregroundColor(.brandPurple)
+                        }
+                        
+                        // 戻るボタン
+                        Button(action: goBackToPreviousUser) {
+                            Image(systemName: "arrow.uturn.backward")
+                                .foregroundColor(canGoBack ? .brandPurple : .gray.opacity(0.3))
+                        }
+                        .disabled(!canGoBack)
                     }
                 }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: { showFilter = true }) {
-                        Image(systemName: "slider.horizontal.3")
-                            .foregroundColor((!filterConditions.isEmpty || minCommonPoints > 0 || maxDistance < 100) ? .brandPurple : .primary)
-                    }
+            }
+            .sheet(isPresented: $showUserDetail) {
+                if let user = selectedUser {
+                    UserProfileDetailView(user: user, commonPoints: userService.calculateCommonPoints(with: user))
+                        .environmentObject(userService)
+                        .environmentObject(authService)
                 }
             }
             .sheet(isPresented: $showFilter) {
@@ -152,177 +121,340 @@ struct DiscoveryView: View {
                     commonPointsMode: $commonPointsMode,
                     maxDistance: $maxDistance
                 )
+                .environmentObject(userService)
             }
-            .sheet(isPresented: $showDisplaySettings) {
-                displaySettingsSheet
+            .alert("いいねを送りました！", isPresented: $showLikeAlert) {
+                Button("OK") {
+                    checkNotificationStatus()
+                }
+            } message: {
+                Text("相手もいいねを返してくれたらマッチ成立！\nマッチしたらメッセージ欄に表示されます。")
             }
-            .fullScreenCover(isPresented: $showMatchAnimation) {
-                MatchAnimationView(partnerName: matchedPartnerName, isPresented: $showMatchAnimation)
+            .alert("通知をオンにしますか？", isPresented: $showNotificationPrompt) {
+                Button("オンにする") {
+                    requestNotificationPermission()
+                }
+                Button("あとで", role: .cancel) {}
+            } message: {
+                Text("マッチやメッセージを見逃さないように、通知をオンにすることをおすすめします。")
             }
             .refreshable {
-                await userService.fetchUsersForDiscovery()
+                await refreshUsersAsync()
             }
-            .task {
-                await syncProStatus()
-                await userService.fetchUsersForDiscovery()
+            .onAppear {
+                loadUsers()
             }
-        }
-    }
-    
-    // Helper Methods
-    private func syncProStatus() async {
-        guard let user = userService.currentUserProfile else { return }
-        if purchaseManager.isPro != user.isProUser {
-            await userService.syncProStatus(isPro: purchaseManager.isPro)
-        }
-    }
-    
-    private func calculateCommonPoints(user: UserProfile) -> Int {
-        guard let myProfile = userService.currentUserProfile else { return 0 }
-        var count = 0
-        for (key, myVal) in myProfile.profileItems {
-            let isPublic = user.privacySettings[key] ?? true
-            if isPublic, let userVal = user.profileItems[key], !userVal.isEmpty, userVal == myVal {
-                count += 1
+            .onDisappear {
+                audioPlayer.stopPlayback()
             }
         }
-        return count
     }
     
-    private func calculateDistanceInfo(targetUser: UserProfile) -> String? {
-        guard let currentUser = userService.currentUserProfile,
-              purchaseManager.isPro,
-              currentUser.isLocationPublic,
-              targetUser.isLocationPublic,
-              let myLoc = currentUser.location,
-              let targetLoc = targetUser.location else { return nil }
-        
-        let distanceKm = myLoc.distance(from: targetLoc) / 1000
-        if distanceKm < 1 { return "1km以内" }
-        if distanceKm < 5 { return "5km以内" }
-        let rounded = Int(ceil(distanceKm / 5.0) * 5.0)
-        return "\(rounded)km以内"
-    }
+    // MARK: - Empty State
     
-    private var displaySettingsSheet: some View {
-        NavigationView {
-            List {
-                Section(header: Text("表示オプション")) {
-                    Toggle("マッチした人を表示", isOn: $showMatchedUsers)
-                    Toggle("拒否した人を表示", isOn: $showSkippedUsers)
-                }
-            }
-            .navigationTitle("表示設定")
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("完了") { showDisplaySettings = false }
-                }
-            }
-        }
-        .presentationDetents([.height(250)])
-    }
-}
-
-// ユーザーカードビュー
-struct UserDiscoveryCard: View {
-    let user: UserProfile
-    @ObservedObject var audioPlayer: AudioPlayer
-    let commonPoints: Int
-    let distanceText: String?
-    var onSkip: () -> Void
-    
-    var body: some View {
-        VStack(spacing: 15) {
-            HStack {
-                UserAvatarView(imageURL: user.profileImageURL, size: 50)
-                
-                NavigationLink(destination: UserProfileDetailView(user: user)) {
-                    VStack(alignment: .leading) {
-                        HStack {
-                            Text(user.username)
-                                .font(.headline)
-                                .foregroundColor(.primary)
-                            
-                            if user.privacySettings["age"] ?? true, let age = user.profileItems["age"] {
-                                Text(age).font(.subheadline).foregroundColor(.secondary)
-                            }
-                        }
-                        
-                        HStack {
-                            if commonPoints > 0 {
-                                Text("共通点 \(commonPoints)個")
-                                    .font(.caption)
-                                    .foregroundColor(.brandPurple)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 2)
-                                    .background(Color.brandPurple.opacity(0.1))
-                                    .cornerRadius(8)
-                            }
-                            
-                            if let dist = distanceText {
-                                HStack(spacing: 2) {
-                                    Image(systemName: "location.fill").font(.caption2)
-                                    Text(dist).font(.caption)
-                                }
-                                .foregroundColor(.secondary)
-                            }
-                        }
+    private var emptyStateView: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "person.2.slash")
+                .font(.system(size: 60))
+                .foregroundColor(.gray)
+            
+            Text("表示できるユーザーがいません")
+                .font(.headline)
+                .foregroundColor(.secondary)
+            
+            Text("条件を変更するか、時間をおいてお試しください")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+            
+            if !showLikedUsers {
+                Button(action: {
+                    showLikedUsers = true
+                }) {
+                    HStack {
+                        Image(systemName: "heart.fill")
+                        Text("いいね済みを表示")
                     }
+                    .font(.caption)
+                    .foregroundColor(.pink)
+                }
+                .padding(.top, 5)
+            }
+        }
+        .padding()
+    }
+    
+    // MARK: - User Card View
+    
+    private var userCardView: some View {
+        VStack(spacing: 16) {
+            // ステータスバー
+            HStack {
+                HStack(spacing: 4) {
+                    Image(systemName: "heart.fill")
+                        .foregroundColor(.pink)
+                    Text("残り \(userService.remainingLikes()) 回")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
                 
                 Spacer()
                 
-                Button(action: onSkip) {
-                    Image(systemName: "xmark")
-                        .font(.caption)
-                        .foregroundColor(.gray)
-                        .padding(8)
-                        .background(Color.gray.opacity(0.1))
-                        .clipShape(Circle())
-                }
-            }
-            
-            // 自己紹介ボイス再生ボタン
-            if let audioURL = user.bioAudioURL, let url = URL(string: audioURL) {
-                Button(action: {
-                    if audioPlayer.isPlaying && audioPlayer.currentlyPlayingURL == audioURL {
-                        audioPlayer.stopPlayback()
-                    } else {
-                        audioPlayer.startPlayback(url: url)
+                if showLikedUsers {
+                    HStack(spacing: 4) {
+                        Image(systemName: "heart.fill")
+                            .font(.caption2)
+                        Text("済みも表示中")
+                            .font(.caption2)
                     }
-                }) {
-                    HStack {
-                        Image(systemName: (audioPlayer.isPlaying && audioPlayer.currentlyPlayingURL == audioURL) ? "pause.circle.fill" : "play.circle.fill")
-                            .font(.title)
-                            .foregroundColor(.brandPurple)
-                        
-                        Spacer()
-                        Text(audioPlayer.isPlaying && audioPlayer.currentlyPlayingURL == audioURL ? "再生中..." : "声を聴く")
-                            .font(.subheadline)
-                            .fontWeight(.bold)
-                            .foregroundColor(.brandPurple)
-                    }
-                    .padding()
-                    .background(Color.bubbleGray)
-                    .cornerRadius(15)
-                }
-            }
-            
-            // アプローチボタン
-            NavigationLink(destination: VoiceRecordingView(receiverID: user.uid, mode: .approach)) {
-                Text("この声にメッセージを送る")
-                    .font(.subheadline)
-                    .fontWeight(.bold)
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(LinearGradient.instaGradient)
+                    .foregroundColor(.pink)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.pink.opacity(0.1))
                     .cornerRadius(10)
+                }
+                
+                Spacer()
+                
+                Text("\(currentIndex + 1) / \(filteredUsers.count)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .padding(.horizontal)
+            
+            // ユーザーカード
+            if currentIndex < filteredUsers.count {
+                let user = filteredUsers[currentIndex]
+                let isAlreadyLiked = userService.currentUserProfile?.likedUserIDs.contains(user.uid) ?? false
+                
+                VStack(spacing: 0) {
+                    Button(action: {
+                        selectedUser = user
+                        showUserDetail = true
+                    }) {
+                        VStack(spacing: 16) {
+                            if isAlreadyLiked {
+                                HStack {
+                                    Image(systemName: "heart.fill")
+                                    Text("いいね済み")
+                                }
+                                .font(.caption)
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(Color.pink)
+                                .cornerRadius(15)
+                            }
+                            
+                            UserAvatarView(imageURL: user.iconImageURL, size: 120)
+                            
+                            Text(user.username)
+                                .font(.title2)
+                                .fontWeight(.bold)
+                                .foregroundColor(.primary)
+                            
+                            CommonPointsBadge(count: userService.calculateCommonPoints(with: user))
+                            
+                            if let introVoice = user.voiceProfiles["introduction"] ?? user.voiceProfiles["naturalVoice"] {
+                                VoicePlayButton(
+                                    audioURL: introVoice.audioURL,
+                                    duration: introVoice.duration,
+                                    audioPlayer: audioPlayer
+                                )
+                            }
+                            
+                            Text("タップして詳細を見る")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(30)
+                        .frame(maxWidth: .infinity)
+                        .background(Color.white)
+                        .cornerRadius(20)
+                        .shadow(color: .black.opacity(0.1), radius: 10, x: 0, y: 5)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+                .padding(.horizontal)
+                
+                Spacer()
+                
+                // アクションボタン（スキップ と いいね）
+                HStack(spacing: 60) {
+                    // スキップボタン
+                    Button(action: {
+                        skipCurrentUser()
+                    }) {
+                        VStack {
+                            Circle()
+                                .fill(Color.gray.opacity(0.1))
+                                .frame(width: 70, height: 70)
+                                .overlay(
+                                    Image(systemName: "xmark")
+                                        .font(.system(size: 28, weight: .bold))
+                                        .foregroundColor(.gray)
+                                )
+                            Text("スキップ")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    
+                    // いいねボタン
+                    Button(action: {
+                        sendLikeToCurrentUser()
+                    }) {
+                        VStack {
+                            Circle()
+                                .fill(isAlreadyLiked ? Color.gray.opacity(0.1) : Color.pink.opacity(0.1))
+                                .frame(width: 70, height: 70)
+                                .overlay(
+                                    Image(systemName: "heart.fill")
+                                        .font(.system(size: 28))
+                                        .foregroundColor(isAlreadyLiked ? .gray : .pink)
+                                )
+                            Text(isAlreadyLiked ? "いいね済み" : "いいね")
+                                .font(.caption)
+                                .foregroundColor(isAlreadyLiked ? .gray : .pink)
+                        }
+                    }
+                    .disabled(isAlreadyLiked || !userService.canSendLike())
+                }
+                .padding(.bottom, 30)
             }
         }
-        .padding()
-        .background(Color.white)
-        .cornerRadius(20)
-        .shadow(color: Color.black.opacity(0.05), radius: 5)
+    }
+    
+    // MARK: - Actions
+    
+    private func loadUsers() {
+        isLoading = true
+        currentIndex = 0
+        canGoBack = false
+        previousUser = nil
+        
+        Task {
+            await userService.fetchUsersForDiscovery()
+            isLoading = false
+        }
+    }
+    
+    private func refreshUsersAsync() async {
+        audioPlayer.stopPlayback()
+        currentIndex = 0
+        canGoBack = false
+        previousUser = nil
+        await userService.fetchUsersForDiscovery()
+    }
+    
+    private func skipCurrentUser() {
+        guard currentIndex < filteredUsers.count else { return }
+        let user = filteredUsers[currentIndex]
+        
+        // 戻る用に保存
+        previousUser = user
+        canGoBack = true
+        
+        Task {
+            await userService.skipUser(targetUID: user.uid)
+        }
+        
+        moveToNextUser()
+    }
+    
+    private func goBackToPreviousUser() {
+        guard let previous = previousUser else { return }
+        
+        Task {
+            await userService.unskipUser(targetUID: previous.uid)
+            await userService.fetchUsersForDiscovery()
+            
+            if let index = filteredUsers.firstIndex(where: { $0.uid == previous.uid }) {
+                currentIndex = index
+            }
+        }
+        
+        canGoBack = false
+        previousUser = nil
+    }
+    
+    private func sendLikeToCurrentUser() {
+        guard currentIndex < filteredUsers.count else { return }
+        let user = filteredUsers[currentIndex]
+        
+        Task {
+            let success = await userService.sendLike(toUserID: user.uid)
+            if success {
+                showLikeAlert = true
+                moveToNextUser()
+            }
+        }
+    }
+    
+    private func moveToNextUser() {
+        if currentIndex < filteredUsers.count - 1 {
+            currentIndex += 1
+        } else {
+            currentIndex = 0
+        }
+    }
+    
+    private func checkNotificationStatus() {
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            DispatchQueue.main.async {
+                if settings.authorizationStatus == .notDetermined {
+                    showNotificationPrompt = true
+                }
+            }
+        }
+    }
+    
+    private func requestNotificationPermission() {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { granted, error in
+            if granted {
+                DispatchQueue.main.async {
+                    UIApplication.shared.registerForRemoteNotifications()
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Voice Play Button
+
+struct VoicePlayButton: View {
+    let audioURL: String
+    let duration: Double
+    @ObservedObject var audioPlayer: AudioPlayer
+    
+    private var isPlaying: Bool {
+        audioPlayer.isPlaying && audioPlayer.currentlyPlayingURL == audioURL
+    }
+    
+    var body: some View {
+        Button(action: {
+            if isPlaying {
+                audioPlayer.stopPlayback()
+            } else {
+                if let url = URL(string: audioURL) {
+                    audioPlayer.startPlayback(url: url)
+                }
+            }
+        }) {
+            HStack(spacing: 8) {
+                Image(systemName: isPlaying ? "stop.circle.fill" : "play.circle.fill")
+                    .font(.title2)
+                Text(isPlaying ? "停止" : "ボイスを聴く")
+                    .font(.subheadline)
+                Text(String(format: "(%.1f秒)", duration))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .foregroundColor(.brandPurple)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 10)
+            .background(Color.brandPurple.opacity(0.1))
+            .cornerRadius(20)
+        }
     }
 }

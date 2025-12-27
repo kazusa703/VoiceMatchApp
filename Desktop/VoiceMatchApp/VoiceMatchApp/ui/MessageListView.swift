@@ -4,177 +4,357 @@ struct MessageListView: View {
     @EnvironmentObject var messageService: MessageService
     @EnvironmentObject var userService: UserService
     
-    // 重複を除去し、同じ人からのアプローチを1つにまとめる
-    var uniqueApproaches: [Message] {
-        let grouped = Dictionary(grouping: messageService.receivedApproaches, by: { $0.senderID })
-        return grouped.values.compactMap { messages in
-            messages.sorted(by: { $0.createdAt > $1.createdAt }).first
-        }.sorted(by: { $0.createdAt > $1.createdAt })
-    }
-    
     var body: some View {
         NavigationView {
             VStack {
-                // サブタブ切り替え (Enum使用)
+                // サブタブ切り替え
                 Picker("表示", selection: $messageService.selectedSection) {
                     Text("マッチ中").tag(MessageSection.matches)
                     Text("届いた").tag(MessageSection.received)
-                    Text("送った").tag(MessageSection.sent)
                 }
                 .pickerStyle(.segmented)
                 .padding()
                 
-                // コンテンツの切り替え
+                // コンテンツ
                 switch messageService.selectedSection {
-                case .received:
-                    if uniqueApproaches.isEmpty {
-                        EmptyStateView(text: "まだアプローチは届いていません", icon: "tray")
-                    } else {
-                        List {
-                            ForEach(uniqueApproaches) { message in
-                                NavigationLink(destination: ApproachDetailView(message: message)) {
-                                    ApproachRow(message: message)
-                                }
-                            }
-                        }
-                        .listStyle(.plain)
-                    }
-                    
-                case .sent:
-                    if messageService.sentApproaches.isEmpty {
-                        EmptyStateView(text: "まだアプローチを送っていません", icon: "paperplane")
-                    } else {
-                        List {
-                            ForEach(messageService.sentApproaches) { message in
-                                SentApproachRow(message: message)
-                            }
-                        }
-                        .listStyle(.plain)
-                    }
-                    
                 case .matches:
-                    if messageService.matches.isEmpty {
-                        EmptyStateView(text: "まだマッチした相手がいません", icon: "person.2.slash")
-                    } else {
-                        List {
-                            ForEach(messageService.matches) { match in
-                                NavigationLink(destination: ChatDetailView(
-                                    match: match,
-                                    partnerName: "チャット"
-                                )) {
-                                    MessageMatchRow(match: match, currentUID: userService.currentUserProfile?.uid ?? "")
-                                }
-                            }
-                        }
-                        .listStyle(.plain)
-                    }
+                    matchesListView
+                case .received:
+                    receivedLikesListView
                 }
             }
             .navigationTitle("メッセージ")
             .navigationBarTitleDisplayMode(.inline)
             .onAppear {
-                messageService.fetchReceivedApproaches()
-                messageService.fetchSentApproaches()
-                if let uid = userService.currentUserProfile?.uid {
-                    Task { await messageService.fetchMatches(for: uid) }
+                Task {
+                    if let uid = userService.currentUserProfile?.uid {
+                        await messageService.fetchMatches(for: uid)
+                    }
+                    await userService.fetchReceivedLikes()
                 }
             }
         }
     }
-}
-
-// データがない時の表示
-struct EmptyStateView: View {
-    let text: String
-    let icon: String
-    var body: some View {
-        VStack(spacing: 16) {
-            Spacer()
-            Image(systemName: icon)
-                .font(.system(size: 50))
-                .foregroundColor(.gray)
-            Text(text)
-                .foregroundColor(.secondary)
-            Spacer()
-        }
-    }
-}
-
-// アプローチ行
-struct ApproachRow: View {
-    let message: Message
-    @State private var senderProfile: UserProfile?
-    @EnvironmentObject var userService: UserService
     
-    var body: some View {
-        HStack {
-            UserAvatarView(imageURL: senderProfile?.profileImageURL, size: 50)
-            VStack(alignment: .leading) {
-                Text(senderProfile?.username ?? "読み込み中...")
-                    .font(.headline)
-                Text("ボイスメッセージが届いています")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-            Spacer()
-            if !message.isRead {
-                Circle().fill(Color.brandPurple).frame(width: 10, height: 10)
-            }
-        }
-        .task {
-            try? senderProfile = await userService.fetchOtherUserProfile(uid: message.senderID)
-        }
-    }
-}
-
-// 送信済みアプローチ行
-struct SentApproachRow: View {
-    let message: Message
-    @State private var receiverProfile: UserProfile?
-    @EnvironmentObject var userService: UserService
+    // MARK: - マッチ一覧
     
-    var body: some View {
-        HStack {
-            UserAvatarView(imageURL: receiverProfile?.profileImageURL, size: 50)
-            VStack(alignment: .leading) {
-                Text(receiverProfile?.username ?? "読み込み中...")
-                    .font(.headline)
-                Text("返信待ち...")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+    private var matchesListView: some View {
+        Group {
+            if messageService.matches.isEmpty {
+                VStack(spacing: 16) {
+                    Spacer()
+                    Image(systemName: "person.2.slash")
+                        .font(.system(size: 50))
+                        .foregroundColor(.gray)
+                    Text("まだマッチした相手がいません")
+                        .foregroundColor(.secondary)
+                    Spacer()
+                }
+            } else {
+                List {
+                    ForEach(messageService.matches) { match in
+                        NavigationLink(destination: ChatDetailView(
+                            match: match,
+                            partnerName: "チャット"
+                        )) {
+                            MatchRow(match: match, currentUID: userService.currentUserProfile?.uid ?? "")
+                        }
+                    }
+                }
+                .listStyle(.plain)
             }
-            Spacer()
-            Text(message.createdAt, style: .relative)
-                .font(.system(size: 10))
-                .foregroundColor(.gray)
         }
-        .task {
-            try? receiverProfile = await userService.fetchOtherUserProfile(uid: message.receiverID)
+    }
+    
+    // MARK: - 受け取ったいいね一覧
+    
+    private var receivedLikesListView: some View {
+        Group {
+            if userService.receivedLikes.isEmpty {
+                VStack(spacing: 16) {
+                    Spacer()
+                    Image(systemName: "heart.slash")
+                        .font(.system(size: 50))
+                        .foregroundColor(.gray)
+                    Text("まだいいねは届いていません")
+                        .foregroundColor(.secondary)
+                    Spacer()
+                }
+            } else {
+                List {
+                    ForEach(userService.receivedLikes) { like in
+                        ReceivedLikeRow(like: like)
+                    }
+                }
+                .listStyle(.plain)
+            }
         }
     }
 }
 
-// マッチ行
-struct MessageMatchRow: View {
+// MARK: - マッチ行
+
+struct MatchRow: View {
     let match: UserMatch
     let currentUID: String
+    
     @State private var partnerProfile: UserProfile?
     @EnvironmentObject var userService: UserService
     
+    private var partnerID: String {
+        match.user1ID == currentUID ? match.user2ID : match.user1ID
+    }
+    
     var body: some View {
         HStack {
-            UserAvatarView(imageURL: partnerProfile?.profileImageURL, size: 50)
-            VStack(alignment: .leading) {
+            UserAvatarView(imageURL: partnerProfile?.iconImageURL, size: 50)
+            
+            VStack(alignment: .leading, spacing: 4) {
                 Text(partnerProfile?.username ?? "読み込み中...")
                     .font(.headline)
-                Text("タップしてチャットを開く")
+                
+                Text("ボイスメッセージでやり取り中")
                     .font(.caption)
-                    .foregroundColor(.gray)
+                    .foregroundColor(.secondary)
+            }
+            
+            Spacer()
+            
+            Text(match.lastMessageDate, style: .relative)
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+        .task {
+            partnerProfile = try? await userService.fetchOtherUserProfile(uid: partnerID)
+        }
+    }
+}
+
+// MARK: - 受け取ったいいね行
+
+struct ReceivedLikeRow: View {
+    let like: Like
+    
+    @State private var senderProfile: UserProfile?
+    @State private var isProcessing = false
+    @State private var showUserDetail = false
+    
+    @EnvironmentObject var userService: UserService
+    @StateObject private var audioPlayer = AudioPlayer()
+    
+    var body: some View {
+        HStack {
+            // アイコン（タップで詳細）
+            Button(action: { showUserDetail = true }) {
+                UserAvatarView(imageURL: senderProfile?.iconImageURL, size: 50)
+            }
+            .buttonStyle(PlainButtonStyle())
+            
+            VStack(alignment: .leading, spacing: 4) {
+                Text(senderProfile?.username ?? "読み込み中...")
+                    .font(.headline)
+                
+                Text("いいねが届いています")
+                    .font(.caption)
+                    .foregroundColor(.brandPurple)
+            }
+            
+            Spacer()
+            
+            // 承認・拒否ボタン
+            HStack(spacing: 12) {
+                Button(action: declineLike) {
+                    Image(systemName: "xmark")
+                        .foregroundColor(.gray)
+                        .padding(10)
+                        .background(Color.gray.opacity(0.1))
+                        .clipShape(Circle())
+                }
+                .buttonStyle(PlainButtonStyle())
+                
+                Button(action: acceptLike) {
+                    if isProcessing {
+                        ProgressView()
+                            .frame(width: 40, height: 40)
+                    } else {
+                        Image(systemName: "heart.fill")
+                            .foregroundColor(.white)
+                            .padding(10)
+                            .background(LinearGradient.instaGradient)
+                            .clipShape(Circle())
+                    }
+                }
+                .buttonStyle(PlainButtonStyle())
+                .disabled(isProcessing)
             }
         }
         .task {
-            let partnerID = (match.user1ID == currentUID) ? match.user2ID : match.user1ID
-            try? partnerProfile = await userService.fetchOtherUserProfile(uid: partnerID)
+            senderProfile = try? await userService.fetchOtherUserProfile(uid: like.fromUserID)
+        }
+        .sheet(isPresented: $showUserDetail) {
+            if let profile = senderProfile {
+                NavigationView {
+                    LikeUserDetailView(
+                        user: profile,
+                        commonPoints: userService.calculateCommonPoints(with: profile),
+                        onAccept: acceptLike,
+                        onDecline: declineLike
+                    )
+                }
+            }
+        }
+    }
+    
+    private func acceptLike() {
+        isProcessing = true
+        Task {
+            _ = await userService.acceptLike(fromUserID: like.fromUserID)
+            isProcessing = false
+        }
+    }
+    
+    private func declineLike() {
+        Task {
+            await userService.declineLike(fromUserID: like.fromUserID)
+        }
+    }
+}
+
+// MARK: - いいねを送ってきたユーザーの詳細
+
+struct LikeUserDetailView: View {
+    let user: UserProfile
+    let commonPoints: Int
+    var onAccept: () -> Void
+    var onDecline: () -> Void
+    
+    @StateObject private var audioPlayer = AudioPlayer()
+    @Environment(\.dismiss) var dismiss
+    
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 24) {
+                // アイコンとユーザー名
+                HStack(spacing: 16) {
+                    UserAvatarView(imageURL: user.iconImageURL, size: 80)
+                    
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(user.username)
+                            .font(.title2)
+                            .fontWeight(.bold)
+                        
+                        HStack {
+                            Image(systemName: "sparkles")
+                                .foregroundColor(.yellow)
+                            Text("共通点 \(commonPoints)個")
+                                .font(.subheadline)
+                                .foregroundColor(.brandPurple)
+                        }
+                    }
+                    
+                    Spacer()
+                }
+                .padding()
+                .background(Color.white)
+                .cornerRadius(15)
+                .padding(.horizontal)
+                .padding(.top)
+                
+                // ボイス一覧
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("ボイス")
+                        .font(.headline)
+                        .padding(.horizontal)
+                    
+                    ForEach(VoiceProfileConstants.items) { item in
+                        if let voiceData = user.voiceProfiles[item.key] {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(item.displayName)
+                                        .font(.subheadline)
+                                        .fontWeight(.medium)
+                                    Text(String(format: "%.1f秒", voiceData.duration))
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                
+                                Spacer()
+                                
+                                Button(action: {
+                                    if audioPlayer.isPlaying && audioPlayer.currentlyPlayingURL == voiceData.audioURL {
+                                        audioPlayer.stopPlayback()
+                                    } else {
+                                        if let url = URL(string: voiceData.audioURL) {
+                                            audioPlayer.startPlayback(url: url)
+                                        }
+                                    }
+                                }) {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: (audioPlayer.isPlaying && audioPlayer.currentlyPlayingURL == voiceData.audioURL) ? "stop.circle.fill" : "play.circle.fill")
+                                            .font(.title2)
+                                        Text((audioPlayer.isPlaying && audioPlayer.currentlyPlayingURL == voiceData.audioURL) ? "停止" : "再生")
+                                            .font(.caption)
+                                    }
+                                    .foregroundColor(.brandPurple)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                    .background(Color.brandPurple.opacity(0.1))
+                                    .cornerRadius(15)
+                                }
+                            }
+                            .padding(.horizontal)
+                            .padding(.vertical, 8)
+                        }
+                    }
+                }
+                .padding(.vertical)
+                .background(Color.white)
+                .cornerRadius(15)
+                .padding(.horizontal)
+                
+                Spacer(minLength: 100)
+            }
+        }
+        .safeAreaInset(edge: .bottom) {
+            HStack(spacing: 16) {
+                Button(action: {
+                    onDecline()
+                    dismiss()
+                }) {
+                    Text("スキップ")
+                        .fontWeight(.medium)
+                        .foregroundColor(.secondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(Color.gray.opacity(0.1))
+                        .cornerRadius(30)
+                }
+                
+                Button(action: {
+                    onAccept()
+                    dismiss()
+                }) {
+                    HStack {
+                        Image(systemName: "heart.fill")
+                        Text("マッチする")
+                            .fontWeight(.bold)
+                    }
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .background(LinearGradient.instaGradient)
+                    .cornerRadius(30)
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 10)
+            .background(Color(uiColor: .systemGroupedBackground))
+        }
+        .navigationTitle(user.username)
+        .navigationBarTitleDisplayMode(.inline)
+        .background(Color(uiColor: .systemGroupedBackground))
+        .onDisappear {
+            audioPlayer.stopPlayback()
         }
     }
 }

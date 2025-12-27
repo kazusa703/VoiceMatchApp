@@ -1,6 +1,6 @@
 import SwiftUI
-import Combine
 import AVFoundation
+import FirebaseAuth
 
 struct ChatDetailView: View {
     let match: UserMatch
@@ -8,363 +8,477 @@ struct ChatDetailView: View {
     
     @EnvironmentObject var messageService: MessageService
     @EnvironmentObject var userService: UserService
-    @Environment(\.dismiss) var dismiss
-    @StateObject var audioPlayer = AudioPlayer()
+    @EnvironmentObject var purchaseManager: PurchaseManager
+    @StateObject private var audioPlayer = AudioPlayer()
     
-    // アラート用
-    @State private var showReportAlert = false
+    @State private var showVoiceRecorder = false
+    @State private var showReportSheet = false
     @State private var showBlockAlert = false
+    @State private var partnerProfile: UserProfile?
     
-    @State private var timer = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
-    @State private var currentDate = Date()
+    private var currentUID: String {
+        Auth.auth().currentUser?.uid ?? ""
+    }
+    
+    private var partnerID: String {
+        match.user1ID == currentUID ? match.user2ID : match.user1ID
+    }
+    
+    private var matchID: String {
+        match.id ?? [match.user1ID, match.user2ID].sorted().joined(separator: "_")
+    }
     
     var body: some View {
         VStack(spacing: 0) {
-            // メッセージ一覧表示エリア
-            messageListView
+            // メッセージ一覧
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 12) {
+                        if messageService.currentMessages.isEmpty {
+                            VStack(spacing: 16) {
+                                Image(systemName: "waveform.circle")
+                                    .font(.system(size: 60))
+                                    .foregroundColor(.gray)
+                                Text("ボイスメッセージを送ってみましょう！")
+                                    .foregroundColor(.secondary)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 100)
+                        } else {
+                            ForEach(messageService.currentMessages) { message in
+                                VoiceBubble(
+                                    message: message,
+                                    isFromMe: message.senderID == currentUID,
+                                    audioPlayer: audioPlayer
+                                )
+                                .id(message.id)
+                            }
+                        }
+                    }
+                    .padding()
+                }
+                .onChange(of: messageService.currentMessages.count) { _ in
+                    if let lastID = messageService.currentMessages.last?.id {
+                        withAnimation {
+                            proxy.scrollTo(lastID, anchor: .bottom)
+                        }
+                    }
+                }
+            }
             
             Divider()
             
-            // 下部の返信ボタン
-            replyButtonView
+            // 録音ボタン
+            VStack(spacing: 8) {
+                Button(action: { showVoiceRecorder = true }) {
+                    HStack {
+                        Image(systemName: "mic.fill")
+                            .font(.title2)
+                        Text("ボイスメッセージを録音")
+                            .fontWeight(.medium)
+                    }
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(LinearGradient.instaGradient)
+                    .cornerRadius(25)
+                }
+                .padding(.horizontal)
+                
+                Text("最大1分まで録音できます")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .padding(.vertical, 10)
+            .background(Color.white)
         }
         .navigationTitle(partnerName)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar { toolbarContent }
-        .alert("通報しますか？", isPresented: $showReportAlert) {
-            Button("キャンセル", role: .cancel) {}
-            Button("不快なコンテンツ", role: .destructive) { reportUser(reason: "不快なコンテンツ") }
-            Button("スパム", role: .destructive) { reportUser(reason: "スパム") }
-        } message: {
-            Text("問題の内容を選択してください。")
-        }
-        .alert("ブロックしますか？", isPresented: $showBlockAlert) {
-            Button("キャンセル", role: .cancel) {}
-            Button("ブロックする", role: .destructive) { blockUser() }
-        } message: {
-            Text("このユーザーとのチャットは削除され、今後表示されなくなります。")
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Menu {
+                    Button(role: .destructive, action: { showReportSheet = true }) {
+                        Label("通報する", systemImage: "exclamationmark.bubble")
+                    }
+                    Button(role: .destructive, action: { showBlockAlert = true }) {
+                        Label("ブロックする", systemImage: "nosign")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+            }
         }
         .onAppear {
-            if let matchID = match.id {
-                print("DEBUG: ChatDetailView - 監視開始 matchID: \(matchID)")
-                messageService.listenToMessages(for: matchID)
-            } else {
-                print("DEBUG: ChatDetailView - matchIDがありません")
+            messageService.listenToMessages(for: matchID)
+            Task {
+                partnerProfile = try? await userService.fetchOtherUserProfile(uid: partnerID)
             }
         }
-        // ★重要: 画面遷移時のデータクリア処理は削除済み（画面が白くなるのを防ぐため）
-        .onReceive(timer) { input in
-            currentDate = input
+        .onDisappear {
+            messageService.clearMessages()
+            audioPlayer.stopPlayback()
         }
-    }
-    
-    private var messageListView: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                // メッセージがない場合の表示
-                if messageService.currentMessages.isEmpty {
-                    VStack(spacing: 20) {
-                        Spacer().frame(height: 50)
-                        Text("メッセージはまだありません")
-                            .foregroundColor(.secondary)
-                        Text("ボイスで話しかけてみましょう！")
-                            .font(.caption)
-                            .foregroundColor(.gray)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 50)
-                } else {
-                    // メッセージがある場合
-                    LazyVStack(spacing: 20) {
-                        ForEach(messageService.currentMessages) { message in
-                            MessageRow(
-                                message: message,
-                                isCurrentUser: message.senderID == userService.currentUserProfile?.uid,
-                                audioPlayer: audioPlayer,
-                                currentDate: currentDate,
-                                onListen: {
-                                    if let matchID = match.id, let messageID = message.id {
-                                        messageService.incrementListenCount(messageID: messageID, matchID: matchID)
-                                    }
-                                }
-                            )
-                            .id(message.id)
-                        }
-                    }
-                    .padding(.vertical)
-                }
-            }
-            .background(Color(uiColor: .systemGroupedBackground)) // LINEっぽい背景色
-            // メッセージ更新時に一番下へスクロール
-            .onChange(of: messageService.currentMessages.count) { _ in
-                if let lastID = messageService.currentMessages.last?.id {
-                    DispatchQueue.main.async {
-                        withAnimation { proxy.scrollTo(lastID, anchor: .bottom) }
-                    }
-                }
-            }
+        .sheet(isPresented: $showVoiceRecorder) {
+            ChatVoiceRecorderView(matchID: matchID, isPro: purchaseManager.isPro)
         }
-    }
-    
-    private var replyButtonView: some View {
-        NavigationLink(destination: VoiceRecordingView(
-            receiverID: getPartnerID(),
-            mode: .chatReply(matchID: match.id ?? "")
-        )) {
-            HStack {
-                Image(systemName: "mic.fill")
-                Text("ボイスで返信する").fontWeight(.bold)
-            }
-            .foregroundColor(.white)
-            .frame(maxWidth: .infinity)
-            .padding()
-            .background(LinearGradient.instaGradient)
-            .clipShape(Capsule())
-            .padding()
-            .shadow(color: Color.brandPurple.opacity(0.3), radius: 5, x: 0, y: 3)
+        .sheet(isPresented: $showReportSheet) {
+            ReportSheetView(targetUID: partnerID, audioURL: nil)
         }
-        .background(Color.white)
-    }
-    
-    private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .navigationBarTrailing) {
-            Menu {
-                Button(role: .destructive, action: { showReportAlert = true }) {
-                    Label("通報する", systemImage: "exclamationmark.bubble")
-                }
-                Button(role: .destructive, action: { showBlockAlert = true }) {
-                    Label("ブロックする", systemImage: "nosign")
-                }
-            } label: {
-                Image(systemName: "ellipsis").foregroundColor(.primary)
+        .alert("ブロックしますか？", isPresented: $showBlockAlert) {
+            Button("ブロックする", role: .destructive) {
+                Task { await userService.blockUser(targetUID: partnerID) }
             }
-        }
-    }
-    
-    private func getPartnerID() -> String {
-        guard let myID = userService.currentUserProfile?.uid else { return "" }
-        return match.user1ID == myID ? match.user2ID : match.user1ID
-    }
-    
-    private func reportUser(reason: String) {
-        let targetID = getPartnerID()
-        Task { await userService.reportUser(targetUID: targetID, reason: reason, comment: "", audioURL: nil) }
-    }
-    
-    private func blockUser() {
-        let targetID = getPartnerID()
-        Task {
-            await userService.blockUser(targetUID: targetID)
-            guard let myUID = userService.currentUserProfile?.uid else { return }
-            let blockedIDs = (userService.currentUserProfile?.blockedUserIDs ?? []) + [targetID]
-            await messageService.fetchMatches(for: myUID, blockedUserIDs: blockedIDs)
-            dismiss()
+            Button("キャンセル", role: .cancel) {}
+        } message: {
+            Text("今後このユーザーのメッセージは表示されなくなります。")
         }
     }
 }
 
-// MARK: - MessageRow (LINE風デザイン修正版)
-struct MessageRow: View {
+// MARK: - ボイスバブル
+
+struct VoiceBubble: View {
     let message: VoiceMessage
-    let isCurrentUser: Bool
+    let isFromMe: Bool
     @ObservedObject var audioPlayer: AudioPlayer
-    var currentDate: Date
-    var onListen: () -> Void
     
-    @EnvironmentObject var purchaseManager: PurchaseManager
-    
-    // 波形の色：自分は薄い黄色/白、相手は紫
-    private var waveformColor: Color {
-        if isCurrentUser {
-            return message.listenCount > 0 ? Color(red: 1.0, green: 0.9, blue: 0.4) : Color.white.opacity(0.7)
-        } else {
-            return message.listenCount > 0 ? Color.brandPurple.opacity(0.3) : Color.brandPurple
-        }
-    }
-    
-    // バブルの背景色
-    private var bubbleBackground: some View {
-        Group {
-            if isCurrentUser {
-                LinearGradient.instaGradient // 自分はグラデーション
-            } else {
-                Color.white // 相手は白（または薄いグレー）
-            }
-        }
-    }
-    
-    // 文字色
-    private var foregroundColor: Color {
-        isCurrentUser ? .white : .primary
+    private var isPlaying: Bool {
+        audioPlayer.isPlaying && audioPlayer.currentlyPlayingURL == message.audioURL
     }
     
     var body: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            // 自分なら左側にスペース（右寄せ）
-            if isCurrentUser { Spacer() }
+        HStack {
+            if isFromMe { Spacer() }
             
-            // 相手のアバター（必要ならここに追加可能）
-            
-            // --- メッセージバブル ---
-            VStack(alignment: isCurrentUser ? .trailing : .leading, spacing: 6) {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 12) {
-                        // 再生ボタン
-                        Button(action: {
-                            if audioPlayer.isPlaying && audioPlayer.currentlyPlayingURL == message.audioURL {
-                                audioPlayer.stopPlayback()
-                            } else if let url = URL(string: message.audioURL) {
-                                audioPlayer.startPlayback(url: url)
-                                if !isCurrentUser { onListen() }
-                            }
-                        }) {
-                            Image(systemName: (audioPlayer.isPlaying && audioPlayer.currentlyPlayingURL == message.audioURL) ? "stop.circle.fill" : "play.circle.fill")
-                                .font(.system(size: 32)) // ボタンサイズ調整
-                                .foregroundColor(isCurrentUser ? .white : .brandPurple)
+            VStack(alignment: isFromMe ? .trailing : .leading, spacing: 4) {
+                // ボイスメッセージ
+                if let url = URL(string: message.audioURL) {
+                    Button(action: {
+                        if isPlaying {
+                            audioPlayer.stopPlayback()
+                        } else {
+                            audioPlayer.startPlayback(url: url)
                         }
-                        
-                        // 波形ビジュアライザー
-                        HStack(spacing: 2) {
-                            // データがない場合のダミー波形を用意
-                            let samples = (message.waveformSamples?.isEmpty == false) ? message.waveformSamples! : [0.4, 0.6, 0.8, 0.5, 0.7, 0.9, 0.6, 0.4, 0.7, 0.5]
+                    }) {
+                        HStack(spacing: 10) {
+                            Image(systemName: isPlaying ? "stop.fill" : "play.fill")
+                                .font(.title3)
                             
-                            ForEach(samples.indices.prefix(15), id: \.self) { index in
-                                RoundedRectangle(cornerRadius: 1)
-                                    .fill(waveformColor)
-                                    .frame(width: 3, height: CGFloat(samples[index] * 20 + 5)) // 高さ調整
+                            // 波形表示（簡易）
+                            HStack(spacing: 2) {
+                                ForEach(0..<12, id: \.self) { i in
+                                    RoundedRectangle(cornerRadius: 2)
+                                        .fill(isFromMe ? Color.white.opacity(0.7) : Color.brandPurple.opacity(0.7))
+                                        .frame(width: 3, height: CGFloat.random(in: 8...20))
+                                }
                             }
+                            
+                            Text(String(format: "%.1f秒", message.duration))
+                                .font(.caption)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .background(isFromMe ? Color.brandPurple : Color.bubbleGray)
+                        .foregroundColor(isFromMe ? .white : .primary)
+                        .cornerRadius(20)
+                    }
+                }
+                
+                // エフェクト表示
+                HStack(spacing: 4) {
+                    if let effect = message.effectUsed, effect != "normal" {
+                        if let effectDef = VoiceEffectConstants.getEffect(by: effect) {
+                            Image(systemName: effectDef.icon)
+                                .font(.caption2)
+                            Text(effectDef.displayName)
+                                .font(.caption2)
+                        }
+                    }
+                    
+                    Text(message.timestamp, style: .time)
+                        .font(.caption2)
+                }
+                .foregroundColor(.secondary)
+            }
+            
+            if !isFromMe { Spacer() }
+        }
+    }
+}
+
+// MARK: - チャット用ボイス録音画面
+
+struct ChatVoiceRecorderView: View {
+    let matchID: String
+    let isPro: Bool
+    
+    @EnvironmentObject var messageService: MessageService
+    @Environment(\.dismiss) var dismiss
+    
+    @StateObject private var audioRecorder = AudioRecorder()
+    @StateObject private var audioPlayer = AudioPlayer()
+    @StateObject private var effectManager = VoiceEffectManager.shared
+    
+    @State private var recordingDuration: Double = 0
+    @State private var timer: Timer?
+    @State private var isProcessing = false
+    @State private var isSending = false
+    @State private var processedURL: URL?
+    @State private var showEffectSettings = false
+    
+    @State private var selectedEffect: VoiceEffectDefinition?
+    
+    private let maxDuration: Double = 60.0
+    
+    var availableEffects: [VoiceEffectDefinition] {
+        VoiceEffectConstants.getEffectsForUser(isPro: isPro)
+    }
+    
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 20) {
+                Text("ボイスメッセージ")
+                    .font(.title2)
+                    .fontWeight(.bold)
+                    .padding(.top)
+                
+                Text("最大60秒")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                
+                Spacer()
+                
+                // 録音時間
+                Text(String(format: "%.1f秒", recordingDuration))
+                    .font(.system(size: 48, weight: .bold, design: .monospaced))
+                    .foregroundColor(recordingDuration > 50 ? .red : .primary)
+                
+                // 録音ボタン
+                Button(action: toggleRecording) {
+                    Circle()
+                        .fill(audioRecorder.isRecording ? Color.red : Color.brandPurple)
+                        .frame(width: 80, height: 80)
+                        .overlay(
+                            Image(systemName: audioRecorder.isRecording ? "stop.fill" : "mic.fill")
+                                .font(.title)
+                                .foregroundColor(.white)
+                        )
+                }
+                
+                Spacer()
+                
+                // エフェクト選択
+                if audioRecorder.recordingURL != nil && !audioRecorder.isRecording {
+                    VStack(spacing: 12) {
+                        Text("エフェクト")
+                            .font(.headline)
+                        
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 12) {
+                                ForEach(availableEffects) { effect in
+                                    EffectButton(
+                                        effect: effect,
+                                        isSelected: selectedEffect?.key == effect.key,
+                                        onSelect: { selectEffect(effect) }
+                                    )
+                                }
+                            }
+                            .padding(.horizontal)
                         }
                         
-                        // 秒数表示
-                        Text("\(Int(message.duration))\"")
-                            .font(.caption.bold())
-                            .foregroundColor(foregroundColor)
+                        // Pro用調整バー
+                        if isPro && selectedEffect != nil {
+                            Button("詳細調整") {
+                                showEffectSettings = true
+                            }
+                            .font(.caption)
+                            .foregroundColor(.brandPurple)
+                        }
                     }
+                    .padding()
+                    .background(Color.white)
+                    .cornerRadius(15)
+                    .padding(.horizontal)
                     
-                    // 再生中のみシークバーを表示
-                    if audioPlayer.currentlyPlayingURL == message.audioURL {
-                        SeekableProgressBar(audioPlayer: audioPlayer, messageURL: message.audioURL, isCurrentUser: isCurrentUser)
-                            .frame(width: 160)
-                            .padding(.top, 4)
+                    // 操作ボタン
+                    HStack(spacing: 20) {
+                        Button(action: resetRecording) {
+                            VStack {
+                                Image(systemName: "arrow.counterclockwise")
+                                    .font(.title2)
+                                Text("撮り直す")
+                                    .font(.caption)
+                            }
+                            .foregroundColor(.secondary)
+                        }
+                        
+                        Spacer()
+                        
+                        Button(action: previewAudio) {
+                            VStack {
+                                Image(systemName: audioPlayer.isPlaying ? "stop.circle" : "play.circle")
+                                    .font(.title2)
+                                Text(audioPlayer.isPlaying ? "停止" : "試聴")
+                                    .font(.caption)
+                            }
+                            .foregroundColor(.brandPurple)
+                        }
+                        
+                        Spacer()
+                        
+                        Button(action: sendVoice) {
+                            if isSending || isProcessing {
+                                ProgressView()
+                            } else {
+                                VStack {
+                                    Image(systemName: "paperplane.fill")
+                                        .font(.title2)
+                                    Text("送信")
+                                        .font(.caption)
+                                }
+                                .foregroundColor(.green)
+                            }
+                        }
+                        .disabled(isSending || isProcessing)
                     }
+                    .padding(.horizontal, 40)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                .background(bubbleBackground)
-                .clipShape(BubbleShape(isCurrentUser: isCurrentUser))
-                .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 1)
                 
-                // --- フッター情報（既読/再生回数/時間） ---
-                HStack(spacing: 6) {
-                    // 自分のみ：再生回数表示（Pro機能）
-                    if isCurrentUser && purchaseManager.isPro && message.listenCount > 0 {
-                        HStack(spacing: 2) {
-                            Image(systemName: "headphones")
-                            Text("\(message.listenCount)")
-                        }
-                        .font(.caption2.bold())
-                        .foregroundColor(.brandPurple)
-                    }
-                    
-                    // 送信時間
-                    Text(formatDate(message.timestamp))
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                }
-                .padding(.horizontal, 4)
-            }
-            
-            // 相手なら右側にスペース（左寄せ）
-            if !isCurrentUser { Spacer() }
-        }
-        .padding(.horizontal, 12)
-    }
-    
-    private func formatDate(_ date: Date) -> String {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "ja_JP")
-        f.dateFormat = "H:mm"
-        return f.string(from: date)
-    }
-}
-
-// MARK: - シークバー専用View
-struct SeekableProgressBar: View {
-    @ObservedObject var audioPlayer: AudioPlayer
-    let messageURL: String
-    let isCurrentUser: Bool
-    
-    @State private var isDragging = false
-    @State private var dragValue: Double = 0
-
-    var body: some View {
-        VStack(spacing: 2) {
-            GeometryReader { geometry in
-                ZStack(alignment: .leading) {
-                    Capsule()
-                        .fill(isCurrentUser ? Color.white.opacity(0.3) : Color.gray.opacity(0.2))
-                        .frame(height: 4)
-                    
-                    Capsule()
-                        .fill(isCurrentUser ? Color.white : Color.brandPurple)
-                        .frame(width: progressWidth(in: geometry.size.width), height: 4)
-                    
-                    Circle()
-                        .fill(.white)
-                        .frame(width: 12, height: 12)
-                        .shadow(radius: 1)
-                        .offset(x: progressWidth(in: geometry.size.width) - 6)
-                }
-                .gesture(
-                    DragGesture(minimumDistance: 0)
-                        .onChanged { value in
-                            isDragging = true
-                            let ratio = max(0, min(value.location.x / geometry.size.width, 1))
-                            dragValue = Double(ratio) * audioPlayer.duration
-                        }
-                        .onEnded { value in
-                            let ratio = max(0, min(value.location.x / geometry.size.width, 1))
-                            audioPlayer.seek(to: Double(ratio) * audioPlayer.duration)
-                            isDragging = false
-                        }
-                )
-            }
-            .frame(height: 12)
-            
-            HStack {
-                Text(formatTime(isDragging ? dragValue : audioPlayer.currentTime))
                 Spacer()
-                Text(formatTime(audioPlayer.duration))
             }
-            .font(.system(size: 8, design: .monospaced))
-            .foregroundColor(isCurrentUser ? .white.opacity(0.8) : .secondary)
+            .background(Color(uiColor: .systemGroupedBackground))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("キャンセル") {
+                        audioPlayer.stopPlayback()
+                        dismiss()
+                    }
+                }
+            }
+            .sheet(isPresented: $showEffectSettings) {
+                EffectSettingsView(effectManager: effectManager)
+            }
+            .onAppear {
+                selectedEffect = VoiceEffectConstants.freeEffects.first
+            }
+            .onDisappear {
+                timer?.invalidate()
+                audioPlayer.stopPlayback()
+            }
         }
     }
     
-    private func progressWidth(in totalWidth: CGFloat) -> CGFloat {
-        guard audioPlayer.duration > 0 else { return 0 }
-        let time = isDragging ? dragValue : audioPlayer.currentTime
-        return totalWidth * CGFloat(time / audioPlayer.duration)
+    private func toggleRecording() {
+        if audioRecorder.isRecording {
+            audioRecorder.stopRecording()
+            timer?.invalidate()
+        } else {
+            audioPlayer.stopPlayback()
+            recordingDuration = 0
+            processedURL = nil
+            audioRecorder.startRecording()
+            
+            timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
+                recordingDuration += 0.1
+                if recordingDuration >= maxDuration {
+                    audioRecorder.stopRecording()
+                    timer?.invalidate()
+                }
+            }
+        }
     }
     
-    private func formatTime(_ seconds: Double) -> String {
-        let min = Int(seconds) / 60
-        let sec = Int(seconds) % 60
-        return String(format: "%d:%02d", min, sec)
+    private func resetRecording() {
+        audioPlayer.stopPlayback()
+        recordingDuration = 0
+        processedURL = nil
     }
-}
-
-// MARK: - BubbleShape (吹き出しの形)
-struct BubbleShape: Shape {
-    var isCurrentUser: Bool
-    func path(in rect: CGRect) -> Path {
-        let path = UIBezierPath(
-            roundedRect: rect,
-            byRoundingCorners: isCurrentUser
-                ? [.topLeft, .topRight, .bottomLeft]  // 自分：右下だけ直角（または丸くするなら .bottomRight も含める）
-                : [.topLeft, .topRight, .bottomRight], // 相手：左下だけ直角
-            cornerRadii: CGSize(width: 18, height: 18)
-        )
-        return Path(path.cgPath)
+    
+    private func selectEffect(_ effect: VoiceEffectDefinition) {
+        selectedEffect = effect
+        effectManager.selectEffect(effect)
+        processedURL = nil
+    }
+    
+    private func previewAudio() {
+        if audioPlayer.isPlaying {
+            audioPlayer.stopPlayback()
+            return
+        }
+        
+        if let effect = selectedEffect, effect.key != "normal" {
+            guard let originalURL = audioRecorder.recordingURL else { return }
+            
+            if let processed = processedURL {
+                audioPlayer.startPlayback(url: processed)
+            } else {
+                isProcessing = true
+                effectManager.applyEffect(to: originalURL) { result in
+                    isProcessing = false
+                    switch result {
+                    case .success(let url):
+                        processedURL = url
+                        audioPlayer.startPlayback(url: url)
+                    case .failure(let error):
+                        print("エフェクト処理エラー: \(error)")
+                    }
+                }
+            }
+        } else {
+            if let url = audioRecorder.recordingURL {
+                audioPlayer.startPlayback(url: url)
+            }
+        }
+    }
+    
+    private func sendVoice() {
+        guard recordingDuration > 0 else { return }
+        
+        let effectKey = selectedEffect?.key
+        
+        if let effect = selectedEffect, effect.key != "normal" {
+            guard let originalURL = audioRecorder.recordingURL else { return }
+            
+            if let processed = processedURL {
+                sendProcessedVoice(url: processed, effectKey: effectKey)
+            } else {
+                isProcessing = true
+                effectManager.applyEffect(to: originalURL) { result in
+                    isProcessing = false
+                    switch result {
+                    case .success(let url):
+                        sendProcessedVoice(url: url, effectKey: effectKey)
+                    case .failure(let error):
+                        print("エフェクト処理エラー: \(error)")
+                    }
+                }
+            }
+        } else {
+            if let url = audioRecorder.recordingURL {
+                sendProcessedVoice(url: url, effectKey: effectKey)
+            }
+        }
+    }
+    
+    private func sendProcessedVoice(url: URL, effectKey: String?) {
+        guard let data = try? Data(contentsOf: url) else { return }
+        
+        isSending = true
+        Task {
+            do {
+                try await messageService.sendVoiceMessage(
+                    matchID: matchID,
+                    senderID: Auth.auth().currentUser?.uid ?? "",
+                    audioData: data,
+                    duration: recordingDuration,
+                    effectUsed: effectKey
+                )
+                dismiss()
+            } catch {
+                print("送信エラー: \(error)")
+                isSending = false
+            }
+        }
     }
 }

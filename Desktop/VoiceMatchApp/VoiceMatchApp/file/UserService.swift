@@ -1,416 +1,561 @@
 import Foundation
-import FirebaseFirestore
 import FirebaseAuth
+import FirebaseFirestore
 import FirebaseStorage
-import Combine
-import UIKit
-import GoogleSignIn
 import CoreLocation
+import Combine
+import SwiftUI
 
+@MainActor
 class UserService: ObservableObject {
     @Published var currentUserProfile: UserProfile?
     @Published var discoveryUsers: [UserProfile] = []
+    @Published var receivedLikes: [Like] = []
+    
+    // 自由入力項目のサジェスト用キャッシュ
+    @Published var suggestionsCache: [String: [String]] = [:]
+    
+    // 自由入力フィルター
+    var freeInputFilters: [String: [String]] = [:]
     
     private let db = Firestore.firestore()
     private let storage = Storage.storage()
     
-    // MARK: - アカウント削除
-    func deleteUserAccount(uid: String) async throws {
-        let imageRef = storage.reference().child("profile_images/\(uid).jpg")
-        let voiceRef = storage.reference().child("bio_voices/\(uid).m4a")
-        try? await imageRef.delete()
-        try? await voiceRef.delete()
-        try await db.collection("users").document(uid).delete()
+    // MARK: - サジェスト取得
+    
+    func getSuggestionsForKey(_ key: String) -> [String] {
+        return suggestionsCache[key] ?? []
     }
     
-    // MARK: - ユーザー情報取得・作成
-    func fetchOrCreateUserProfile(uid: String) async throws {
-        let docRef = db.collection("users").document(uid)
-        let document = try await docRef.getDocument()
-        
-        var profile: UserProfile
-        
-        if document.exists, let data = document.data() {
-            profile = decodeUser(from: data, uid: uid)
-        } else {
-            // 新規作成
-            profile = UserProfile(
-                uid: uid,
-                username: "ゲストユーザー",
-                profileItems: [:],
-                privacySettings: [:],
-                notificationSettings: ["approach": true, "match": true, "message": true],
-                cycleStartTime: Date(),
-                maxMatchesPerCycle: 5
-            )
-            try await docRef.setData(from: profile)
-        }
-        
-        // 取得時にリセット判定を実行
-        profile = checkAndResetSentCount(profile: profile)
-        
-        // リセットが発生した可能性があるため、最新状態をDBへ保存
-        try await updateUserProfile(profile: profile)
-        
-        await MainActor.run { self.currentUserProfile = profile }
-        
-        // 発見タブ用のユーザーもロード
-        await fetchUsersForDiscovery()
-    }
-    
-    // MARK: - アプローチ制限ロジック
-    
-    // 12時間経過していたら送信カウントをリセット
-    private func checkAndResetSentCount(profile: UserProfile) -> UserProfile {
-        var updatedProfile = profile
-        let now = Date()
-        
-        if let lastReset = updatedProfile.cycleStartTime {
-            let interval = now.timeIntervalSince(lastReset)
-            if interval >= 12 * 60 * 60 { // 12時間以上経過
-                updatedProfile.matchCountCurrentCycle = 0
-                updatedProfile.cycleStartTime = now
-                print("DEBUG: 12時間が経過したため、送信カウントをリセットしました")
+    func fetchSuggestions() async {
+        // 全ユーザーの自由入力項目を収集してサジェスト用にキャッシュ
+        do {
+            let snapshot = try await db.collection("users")
+                .limit(to: 500)
+                .getDocuments()
+            
+            var allSuggestions: [String: Set<String>] = [:]
+            
+            for doc in snapshot.documents {
+                if let user = try? doc.data(as: UserProfile.self) {
+                    for (key, values) in user.profileFreeItems {
+                        if allSuggestions[key] == nil {
+                            allSuggestions[key] = Set<String>()
+                        }
+                        allSuggestions[key]?.formUnion(values)
+                    }
+                }
             }
-        } else {
-            updatedProfile.cycleStartTime = now
-            updatedProfile.matchCountCurrentCycle = 0
+            
+            // Setを配列に変換してキャッシュ
+            for (key, values) in allSuggestions {
+                suggestionsCache[key] = Array(values).sorted()
+            }
+            
+            print("📝 サジェストキャッシュ更新完了: \(suggestionsCache.keys.count) カテゴリ")
+        } catch {
+            print("サジェスト取得エラー: \(error)")
         }
-        
-        return updatedProfile
     }
     
-    // アプローチ送信可能かチェック
-    func canSendApproach() -> Bool {
+    // MARK: - いいね制限
+    
+    func canSendLike() -> Bool {
         guard let user = currentUserProfile else { return false }
         
-        if user.isProUser { return true }
-        
-        // リセット時間経過もチェック
-        if let start = user.cycleStartTime, Date().timeIntervalSince(start) > 12 * 60 * 60 {
+        if shouldResetCycle() {
             return true
         }
         
-        let limit = 5
-        return user.matchCountCurrentCycle < limit
+        let limit = user.isProUser ? 100 : 10
+        return user.likeCountCurrentCycle < limit
     }
     
-    // アプローチ送信時のみカウントを増やす
-    @MainActor
-    func incrementApproachCount() async throws {
-        guard var user = currentUserProfile else { return }
-        
-        // まずリセットが必要かチェック
-        user = checkAndResetSentCount(profile: user)
-        
-        // カウントアップ
-        user.matchCountCurrentCycle += 1
-        user.maxMatchesPerCycle = user.isProUser ? 50 : 5
-        
-        try await updateUserProfile(profile: user)
+    func remainingLikes() -> Int {
+        guard let user = currentUserProfile else { return 0 }
+        let limit = user.isProUser ? 100 : 10
+        return max(0, limit - user.likeCountCurrentCycle)
     }
     
-    // 互換性のため残す
-    @MainActor
-    func incrementMatchCount() async throws {
-        try await incrementApproachCount()
+    func maxLikesForCurrentUser() -> Int {
+        return currentUserProfile?.isProUser == true ? 100 : 10
     }
     
-    // MARK: - 位置情報
+    func timeUntilCycleReset() -> TimeInterval {
+        guard let cycleStart = currentUserProfile?.cycleStartTime else { return 0 }
+        let cycleEnd = cycleStart.addingTimeInterval(12 * 60 * 60)
+        return max(0, cycleEnd.timeIntervalSinceNow)
+    }
     
-    func updateLocationPublicStatus(isOn: Bool) {
+    func formattedTimeUntilReset() -> String {
+        let seconds = timeUntilCycleReset()
+        if seconds <= 0 { return "リセット済み" }
+        
+        let hours = Int(seconds) / 3600
+        let minutes = (Int(seconds) % 3600) / 60
+        return "\(hours)時間\(minutes)分"
+    }
+    
+    private func shouldResetCycle() -> Bool {
+        guard let cycleStart = currentUserProfile?.cycleStartTime else { return true }
+        return Date().timeIntervalSince(cycleStart) >= 12 * 60 * 60
+    }
+    
+    func incrementLikeCount() async {
         guard let uid = currentUserProfile?.uid else { return }
-        Task {
-            try? await db.collection("users").document(uid).updateData(["isLocationPublic": isOn])
-            await MainActor.run { self.currentUserProfile?.isLocationPublic = isOn }
+        
+        var updates: [String: Any] = [:]
+        
+        if shouldResetCycle() {
+            updates["likeCountCurrentCycle"] = 1
+            updates["cycleStartTime"] = Date()
+        } else {
+            updates["likeCountCurrentCycle"] = FieldValue.increment(Int64(1))
+        }
+        
+        do {
+            try await db.collection("users").document(uid).updateData(updates)
+            if shouldResetCycle() {
+                currentUserProfile?.likeCountCurrentCycle = 1
+                currentUserProfile?.cycleStartTime = Date()
+            } else {
+                currentUserProfile?.likeCountCurrentCycle += 1
+            }
+        } catch {
+            print("いいねカウント更新エラー: \(error)")
         }
     }
-
-    func updateUserLocation(location: CLLocation) async {
-        guard let uid = currentUserProfile?.uid else { return }
-        let data: [String: Any] = [
-            "latitude": location.coordinate.latitude,
-            "longitude": location.coordinate.longitude
-        ]
-        try? await db.collection("users").document(uid).updateData(data)
-    }
     
-    func updateFCMToken(token: String) {
-        guard let uid = currentUserProfile?.uid else { return }
-        db.collection("users").document(uid).updateData(["fcmToken": token])
-    }
+    // MARK: - いいね送信
     
-    // MARK: - デコード
-    
-    private func decodeUser(from data: [String: Any], uid: String) -> UserProfile {
-        let username = data["username"] as? String ?? "ゲストユーザー"
-        let profileItems = data["profileItems"] as? [String: String] ?? [:]
-        let blockedUserIDs = data["blockedUserIDs"] as? [String] ?? []
-        let skippedUserIDs = data["skippedUserIDs"] as? [String] ?? []
-        let matchedUserIDs = data["matchedUserIDs"] as? [String] ?? []
+    func sendLike(toUserID: String) async -> Bool {
+        guard let fromUserID = currentUserProfile?.uid else { return false }
+        guard canSendLike() else { return false }
         
-        let matchCount = data["matchCountCurrentCycle"] as? Int ?? 0
-        let isPro = data["isProUser"] as? Bool ?? false
-        let maxMatches = isPro ? 50 : 5
-        
-        let imageURL = data["profileImageURL"] as? String
-        let bioURL = data["bioAudioURL"] as? String
-        let fcmToken = data["fcmToken"] as? String
-        
-        let bio = data["bio"] as? String ?? ""
-        let privacySettings = data["privacySettings"] as? [String: Bool] ?? [:]
-        let notificationSettings = data["notificationSettings"] as? [String: Bool] ?? ["approach": true, "match": true, "message": true]
-        
-        let cycleStartTimestamp = data["cycleStartTime"] as? Timestamp
-        let cycleStartTime = cycleStartTimestamp?.dateValue()
-        
-        let latitude = data["latitude"] as? Double
-        let longitude = data["longitude"] as? Double
-        let isLocationPublic = data["isLocationPublic"] as? Bool ?? false
-        
-        var profile = UserProfile(
-            uid: uid,
-            username: username,
-            profileImageURL: imageURL,
-            bioAudioURL: bioURL,
-            bio: bio,
-            profileItems: profileItems,
-            privacySettings: privacySettings,
-            notificationSettings: notificationSettings,
-            blockedUserIDs: blockedUserIDs,
-            skippedUserIDs: skippedUserIDs,
-            matchedUserIDs: matchedUserIDs,
-            matchCountCurrentCycle: matchCount,
-            lastMatchDate: nil,
-            isProUser: isPro,
-            fcmToken: fcmToken,
-            cycleStartTime: cycleStartTime,
-            maxMatchesPerCycle: maxMatches
+        let like = Like(
+            fromUserID: fromUserID,
+            toUserID: toUserID,
+            createdAt: Date(),
+            status: .pending
         )
         
-        profile.latitude = latitude
-        profile.longitude = longitude
-        profile.isLocationPublic = isLocationPublic
-        profile.reportCount = data["reportCount"] as? Int ?? 0
-        profile.isAccountLocked = data["isAccountLocked"] as? Bool ?? false
-        profile.isAdmin = data["isAdmin"] as? Bool ?? false
+        do {
+            let likeRef = db.collection("likes").document("\(fromUserID)_\(toUserID)")
+            try likeRef.setData(from: like)
+            
+            try await db.collection("users").document(fromUserID).updateData([
+                "likedUserIDs": FieldValue.arrayUnion([toUserID])
+            ])
+            
+            try await db.collection("users").document(toUserID).updateData([
+                "receivedLikeUserIDs": FieldValue.arrayUnion([fromUserID])
+            ])
+            
+            await incrementLikeCount()
+            currentUserProfile?.likedUserIDs.append(toUserID)
+            
+            return true
+        } catch {
+            print("いいね送信エラー: \(error)")
+            return false
+        }
+    }
+    
+    // MARK: - いいね承認・拒否
+    
+    func acceptLike(fromUserID: String) async -> UserMatch? {
+        guard let myUID = currentUserProfile?.uid else { return nil }
         
-        return profile
+        do {
+            let likeRef = db.collection("likes").document("\(fromUserID)_\(myUID)")
+            try await likeRef.updateData(["status": LikeStatus.accepted.rawValue])
+            
+            let matchID = [fromUserID, myUID].sorted().joined(separator: "_")
+            let match = UserMatch(
+                id: matchID,
+                user1ID: fromUserID,
+                user2ID: myUID,
+                lastMessageDate: Date(),
+                matchDate: Date()
+            )
+            
+            let matchRef = db.collection("matches").document(matchID)
+            try matchRef.setData(from: match)
+            
+            try await db.collection("users").document(myUID).updateData([
+                "matchedUserIDs": FieldValue.arrayUnion([fromUserID]),
+                "receivedLikeUserIDs": FieldValue.arrayRemove([fromUserID])
+            ])
+            try await db.collection("users").document(fromUserID).updateData([
+                "matchedUserIDs": FieldValue.arrayUnion([myUID])
+            ])
+            
+            currentUserProfile?.matchedUserIDs.append(fromUserID)
+            currentUserProfile?.receivedLikeUserIDs.removeAll { $0 == fromUserID }
+            
+            return match
+        } catch {
+            print("いいね承認エラー: \(error)")
+            return nil
+        }
+    }
+    
+    func declineLike(fromUserID: String) async {
+        guard let myUID = currentUserProfile?.uid else { return }
+        
+        do {
+            let likeRef = db.collection("likes").document("\(fromUserID)_\(myUID)")
+            try await likeRef.updateData(["status": LikeStatus.declined.rawValue])
+            
+            try await db.collection("users").document(myUID).updateData([
+                "receivedLikeUserIDs": FieldValue.arrayRemove([fromUserID])
+            ])
+            
+            currentUserProfile?.receivedLikeUserIDs.removeAll { $0 == fromUserID }
+        } catch {
+            print("いいね拒否エラー: \(error)")
+        }
+    }
+    
+    func fetchReceivedLikes() async {
+        guard let myUID = currentUserProfile?.uid else { return }
+        
+        do {
+            let snapshot = try await db.collection("likes")
+                .whereField("toUserID", isEqualTo: myUID)
+                .whereField("status", isEqualTo: LikeStatus.pending.rawValue)
+                .order(by: "createdAt", descending: true)
+                .getDocuments()
+            
+            self.receivedLikes = snapshot.documents.compactMap { try? $0.data(as: Like.self) }
+        } catch {
+            print("受け取ったいいね取得エラー: \(error)")
+        }
+    }
+    
+    // MARK: - ユーザープロフィール取得・作成
+    
+    func fetchOrCreateUserProfile(uid: String) async throws {
+        let docRef = db.collection("users").document(uid)
+        let snapshot = try await docRef.getDocument()
+        
+        if snapshot.exists {
+            self.currentUserProfile = try snapshot.data(as: UserProfile.self)
+        } else {
+            let newUser = UserProfile(uid: uid, username: "ユーザー\(String(uid.prefix(4)))")
+            try docRef.setData(from: newUser)
+            self.currentUserProfile = newUser
+        }
+        
+        // サジェスト用データを非同期で取得
+        Task {
+            await fetchSuggestions()
+        }
+    }
+    
+    func fetchOtherUserProfile(uid: String) async throws -> UserProfile {
+        let snapshot = try await db.collection("users").document(uid).getDocument()
+        return try snapshot.data(as: UserProfile.self)
+    }
+    
+    // MARK: - プロフィール更新
+    
+    func updateUserProfile(profile: UserProfile) async throws {
+        try db.collection("users").document(profile.uid).setData(from: profile, merge: true)
+        self.currentUserProfile = profile
+        
+        // サジェストキャッシュを更新
+        Task {
+            await fetchSuggestions()
+        }
+    }
+    
+    // MARK: - アイコン画像アップロード
+    
+    func uploadIconImage(image: UIImage) async throws {
+        guard let uid = currentUserProfile?.uid,
+              let imageData = image.jpegData(compressionQuality: 0.7) else { return }
+        
+        let ref = storage.reference().child("icons/\(uid).jpg")
+        _ = try await ref.putDataAsync(imageData)
+        let url = try await ref.downloadURL()
+        
+        try await db.collection("users").document(uid).updateData([
+            "iconImageURL": url.absoluteString
+        ])
+        currentUserProfile?.iconImageURL = url.absoluteString
+    }
+    
+    // MARK: - ボイスプロフィールアップロード
+    
+    func uploadVoiceProfile(key: String, audioURL: URL, duration: Double, effectUsed: String?) async throws {
+        guard let uid = currentUserProfile?.uid else { return }
+        
+        let audioData = try Data(contentsOf: audioURL)
+        let ref = storage.reference().child("voice_profiles/\(uid)/\(key).m4a")
+        _ = try await ref.putDataAsync(audioData)
+        let url = try await ref.downloadURL()
+        
+        let voiceData = VoiceProfileData(
+            audioURL: url.absoluteString,
+            duration: duration,
+            effectUsed: effectUsed
+        )
+        
+        let encodedData = try Firestore.Encoder().encode(voiceData)
+        try await db.collection("users").document(uid).updateData([
+            "voiceProfiles.\(key)": encodedData
+        ])
+        
+        currentUserProfile?.voiceProfiles[key] = voiceData
+    }
+    
+    // MARK: - ボイスプロフィール削除
+    
+    func deleteVoiceProfile(key: String) async throws {
+        guard let uid = currentUserProfile?.uid else { return }
+        
+        let ref = storage.reference().child("voice_profiles/\(uid)/\(key).m4a")
+        try? await ref.delete()
+        
+        try await db.collection("users").document(uid).updateData([
+            "voiceProfiles.\(key)": FieldValue.delete()
+        ])
+        
+        currentUserProfile?.voiceProfiles.removeValue(forKey: key)
+    }
+    
+    // MARK: - 探す用ユーザー取得（ゲストモード対応）
+    
+    func fetchUsersForDiscovery() async {
+        // ゲストモードの場合は myUID が nil でも OK
+        let myUID = currentUserProfile?.uid
+        let isGuestMode = (myUID == nil)
+        
+        print("🔍 ========== 探すユーザー取得開始 ==========")
+        print("🔍 モード: \(isGuestMode ? "ゲスト" : "通常")")
+        
+        do {
+            let snapshot = try await db.collection("users")
+                .whereField("isAccountLocked", isEqualTo: false)
+                .limit(to: 100)
+                .getDocuments()
+            
+            print("🔍 Firestoreから取得したユーザー数: \(snapshot.documents.count)")
+            
+            var allUsers: [UserProfile] = []
+            for doc in snapshot.documents {
+                if let user = try? doc.data(as: UserProfile.self) {
+                    allUsers.append(user)
+                }
+            }
+            
+            // フィルタリング
+            var filteredUsers: [UserProfile] = []
+            for user in allUsers {
+                let hasNaturalVoice = user.hasNaturalVoice
+                
+                // ゲストモードの場合は自分チェック・ブロックチェック等をスキップ
+                if isGuestMode {
+                    // 地声があるユーザーのみ表示
+                    if hasNaturalVoice {
+                        filteredUsers.append(user)
+                    }
+                } else {
+                    // 通常モード
+                    let isSelf = user.uid == myUID
+                    let isBlocked = currentUserProfile?.blockedUserIDs.contains(user.uid) ?? false
+                    let isSkipped = currentUserProfile?.skippedUserIDs.contains(user.uid) ?? false
+                    let alreadyMatched = currentUserProfile?.matchedUserIDs.contains(user.uid) ?? false
+                    
+                    // 基本フィルター
+                    if isSelf || !hasNaturalVoice || isBlocked || isSkipped || alreadyMatched {
+                        continue
+                    }
+                    
+                    // 自由入力フィルター（AND検索）
+                    var matchesFreeInputFilters = true
+                    for (key, filterValues) in freeInputFilters {
+                        if filterValues.isEmpty { continue }
+                        
+                        let userValues = user.profileFreeItems[key] ?? []
+                        // フィルターの全ての値がユーザーの値に含まれている必要がある
+                        for filterValue in filterValues {
+                            if !userValues.contains(where: { $0.lowercased().contains(filterValue.lowercased()) }) {
+                                matchesFreeInputFilters = false
+                                break
+                            }
+                        }
+                        if !matchesFreeInputFilters { break }
+                    }
+                    
+                    if matchesFreeInputFilters {
+                        filteredUsers.append(user)
+                    }
+                }
+            }
+            
+            self.discoveryUsers = filteredUsers
+            print("🔍 最終的な表示ユーザー数: \(filteredUsers.count)")
+            print("🔍 ========== 探すユーザー取得完了 ==========")
+            
+        } catch {
+            print("🔍 ユーザー取得エラー: \(error)")
+        }
+    }
+    
+    // MARK: - 共通点計算
+    
+    func calculateCommonPoints(with user: UserProfile) -> Int {
+        guard let myProfile = currentUserProfile else { return 0 }
+        var count = 0
+        
+        // 選択式項目の共通点
+        for (key, myVal) in myProfile.profileItems {
+            if let userVal = user.profileItems[key], !userVal.isEmpty && userVal == myVal && myVal != "未設定" {
+                count += 1
+            }
+        }
+        
+        // 自由入力項目の共通点
+        for (key, myValues) in myProfile.profileFreeItems {
+            if let userValues = user.profileFreeItems[key] {
+                let common = Set(myValues).intersection(Set(userValues))
+                count += common.count
+            }
+        }
+        
+        return count
+    }
+    
+    // MARK: - スキップ・ブロック
+    
+    func skipUser(targetUID: String) async {
+        guard let uid = currentUserProfile?.uid else { return }
+        do {
+            try await db.collection("users").document(uid).updateData([
+                "skippedUserIDs": FieldValue.arrayUnion([targetUID])
+            ])
+            currentUserProfile?.skippedUserIDs.append(targetUID)
+            discoveryUsers.removeAll { $0.uid == targetUID }
+        } catch {
+            print("スキップエラー: \(error)")
+        }
+    }
+    
+    func unskipUser(targetUID: String) async {
+        guard let uid = currentUserProfile?.uid else { return }
+        do {
+            try await db.collection("users").document(uid).updateData([
+                "skippedUserIDs": FieldValue.arrayRemove([targetUID])
+            ])
+            currentUserProfile?.skippedUserIDs.removeAll { $0 == targetUID }
+        } catch {
+            print("スキップ解除エラー: \(error)")
+        }
+    }
+    
+    func blockUser(targetUID: String) async {
+        guard let uid = currentUserProfile?.uid else { return }
+        do {
+            try await db.collection("users").document(uid).updateData([
+                "blockedUserIDs": FieldValue.arrayUnion([targetUID])
+            ])
+            currentUserProfile?.blockedUserIDs.append(targetUID)
+            discoveryUsers.removeAll { $0.uid == targetUID }
+        } catch {
+            print("ブロックエラー: \(error)")
+        }
+    }
+    
+    // MARK: - 通報
+    
+    func reportUser(targetUID: String, reason: String, comment: String, audioURL: String?) async {
+        guard let uid = currentUserProfile?.uid else { return }
+        
+        let report = Report(
+            reporterID: uid,
+            targetID: targetUID,
+            reason: reason,
+            comment: comment,
+            audioURL: audioURL,
+            timestamp: Date()
+        )
+        
+        do {
+            try db.collection("reports").addDocument(from: report)
+            try await db.collection("users").document(targetUID).updateData([
+                "reportCount": FieldValue.increment(Int64(1))
+            ])
+        } catch {
+            print("通報エラー: \(error)")
+        }
     }
     
     // MARK: - 設定更新
     
     func updateNotificationSettings(key: String, isOn: Bool) {
-        guard var user = currentUserProfile else { return }
-        var newSettings = user.notificationSettings
-        newSettings[key] = isOn
-        user.notificationSettings = newSettings
-        self.currentUserProfile = user
-        
-        db.collection("users").document(user.uid).updateData(["notificationSettings": newSettings])
+        guard let uid = currentUserProfile?.uid else { return }
+        currentUserProfile?.notificationSettings[key] = isOn
+        db.collection("users").document(uid).updateData([
+            "notificationSettings.\(key)": isOn
+        ])
     }
     
-    // MARK: - アップロード
-    
-    func uploadProfileImage(image: UIImage) async throws {
-        guard let uid = currentUserProfile?.uid, let data = image.jpegData(compressionQuality: 0.5) else { return }
-        let ref = storage.reference().child("profile_images/\(uid).jpg")
-        let _ = try await ref.putDataAsync(data)
-        let url = try await ref.downloadURL()
-        if var user = currentUserProfile {
-            user.profileImageURL = url.absoluteString
-            try await updateUserProfile(profile: user)
-        }
+    func updateLocationPublicStatus(isOn: Bool) {
+        guard let uid = currentUserProfile?.uid else { return }
+        currentUserProfile?.isLocationPublic = isOn
+        db.collection("users").document(uid).updateData([
+            "isLocationPublic": isOn
+        ])
     }
     
-    func uploadBioVoice(audioURL: URL) async throws {
-        guard let uid = currentUserProfile?.uid, let data = try? Data(contentsOf: audioURL) else { return }
-        let ref = storage.reference().child("bio_voices/\(uid).m4a")
-        let _ = try await ref.putDataAsync(data)
-        let url = try await ref.downloadURL()
-        if var user = currentUserProfile {
-            user.bioAudioURL = url.absoluteString
-            try await updateUserProfile(profile: user)
-        }
-    }
-    
-    func updateUserProfile(profile: UserProfile) async throws {
-        try db.collection("users").document(profile.uid).setData(from: profile, merge: true)
-        await MainActor.run { self.currentUserProfile = profile }
-    }
-    
-    // MARK: - Discovery
-    
-    func resetDiscoveryHistory() async {
-        guard var user = currentUserProfile else { return }
-        print("DEBUG: 履歴リセットを開始します...")
-        user.skippedUserIDs = []
-        user.matchedUserIDs = []
-        try? await updateUserProfile(profile: user)
-        await fetchUsersForDiscovery()
-        print("DEBUG: 履歴をリセットし、再フェッチしました")
-    }
-    
-    func fetchUsersForDiscovery() async {
-        print("DEBUG: fetchUsersForDiscovery: 開始")
-        guard let currentUID = currentUserProfile?.uid else {
-            print("DEBUG: エラー: currentUserProfileがnilです")
-            return
-        }
-        
+    func syncProStatus(isPro: Bool) async {
+        guard let uid = currentUserProfile?.uid else { return }
         do {
-            print("DEBUG: Firestoreから最大50件のユーザーを取得します...")
-            let snapshot = try await db.collection("users")
-                .limit(to: 50)
-                .getDocuments()
-            
-            let users = snapshot.documents.compactMap { doc -> UserProfile? in
-                return self.decodeUser(from: doc.data(), uid: doc.documentID)
-            }
-            
-            await MainActor.run {
-                guard let currentUser = self.currentUserProfile else { return }
-                let blockedIDs = Set(currentUser.blockedUserIDs)
-                
-                print("DEBUG: フィルタリング開始 (自分ID: \(currentUID))")
-                
-                self.discoveryUsers = users.filter { user in
-                    let isMe = (user.uid == currentUID)
-                    if isMe { return false }
-                    
-                    let isBlockedByMe = blockedIDs.contains(user.uid)
-                    if isBlockedByMe { return false }
-                    
-                    if user.isAccountLocked { return false }
-                    
-                    return true
-                }
-                
-                print("DEBUG: fetchUsersForDiscovery完了。リスト保持数: \(self.discoveryUsers.count)人")
-            }
+            try await db.collection("users").document(uid).updateData([
+                "isProUser": isPro
+            ])
+            currentUserProfile?.isProUser = isPro
         } catch {
-            print("DEBUG: ユーザー取得エラー: \(error)")
+            print("Pro同期エラー: \(error)")
         }
     }
     
-    // MARK: - Skip / Block
-    
-    func skipUser(targetUID: String) async {
-        guard var user = currentUserProfile else { return }
-        if !user.skippedUserIDs.contains(targetUID) {
-            user.skippedUserIDs.append(targetUID)
-            await MainActor.run { self.currentUserProfile = user }
-            try? await updateUserProfile(profile: user)
-            print("DEBUG: ユーザーをスキップしました: \(targetUID)")
-        }
-    }
-    
-    func unskipUser(targetUID: String) async {
-        guard var user = currentUserProfile else { return }
-        if let index = user.skippedUserIDs.firstIndex(of: targetUID) {
-            user.skippedUserIDs.remove(at: index)
-            try? await updateUserProfile(profile: user)
-            await MainActor.run { self.currentUserProfile = user }
-        }
-    }
-    
-    func blockUser(targetUID: String) async {
-        guard var user = currentUserProfile else { return }
-        if !user.blockedUserIDs.contains(targetUID) {
-            user.blockedUserIDs.append(targetUID)
-            try? await updateUserProfile(profile: user)
-            await MainActor.run { self.discoveryUsers.removeAll { $0.uid == targetUID } }
-        }
-    }
-    
-    // MARK: - Fetch Others
-    
-    func fetchOtherUserProfile(uid: String) async throws -> UserProfile {
-        let doc = try await db.collection("users").document(uid).getDocument()
-        guard let data = doc.data() else { throw NSError(domain: "App", code: -1) }
-        return decodeUser(from: data, uid: uid)
-    }
+    // MARK: - ユーザー一括取得
     
     func fetchUsersByIDs(uids: [String]) async -> [UserProfile] {
-        var users: [UserProfile] = []
-        for uid in uids {
-            if let user = try? await fetchOtherUserProfile(uid: uid) {
-                users.append(user)
-            }
-        }
-        return users
-    }
-    
-    // MARK: - Pro Status
-    
-    @MainActor
-    func syncProStatus(isPro: Bool) async {
-        guard var user = currentUserProfile else { return }
-        if user.isProUser != isPro {
-            user.isProUser = isPro
-            user.maxMatchesPerCycle = isPro ? 50 : 5
-            try? await updateUserProfile(profile: user)
-        }
-    }
-    
-    // MARK: - 通報・管理
-    
-    func reportUser(targetUID: String, reason: String, comment: String, audioURL: String?) async {
-        guard let myUID = currentUserProfile?.uid else { return }
-        
-        let reportData: [String: Any] = [
-            "reporterID": myUID,
-            "targetID": targetUID,
-            "reason": reason,
-            "comment": comment,
-            "audioURL": audioURL ?? "",
-            "timestamp": FieldValue.serverTimestamp()
-        ]
-        
+        guard !uids.isEmpty else { return [] }
         do {
-            try await db.collection("reports").addDocument(data: reportData)
-            let targetRef = db.collection("users").document(targetUID)
-            try await db.runTransaction { (transaction, errorPointer) -> Any? in
-                let targetDoc: DocumentSnapshot
-                do { targetDoc = try transaction.getDocument(targetRef) } catch let fetchError as NSError {
-                    errorPointer?.pointee = fetchError
-                    return nil
-                }
-                let currentCount = targetDoc.data()?["reportCount"] as? Int ?? 0
-                let newCount = currentCount + 1
-                var updateData: [String: Any] = ["reportCount": newCount]
-                if newCount >= 10 { updateData["isAccountLocked"] = true }
-                transaction.updateData(updateData, forDocument: targetRef)
-                return nil
-            }
-        } catch { print("通報処理エラー: \(error)") }
+            let snapshot = try await db.collection("users")
+                .whereField(FieldPath.documentID(), in: uids)
+                .getDocuments()
+            return snapshot.documents.compactMap { try? $0.data(as: UserProfile.self) }
+        } catch {
+            print("ユーザー一括取得エラー: \(error)")
+            return []
+        }
     }
     
-    func sendWarningNotification(targetUID: String) async {
-        // TODO: 警告通知の実装
+    // MARK: - アカウント削除
+    
+    func deleteUserAccount(uid: String) async throws {
+        try await db.collection("users").document(uid).delete()
+        try? await storage.reference().child("icons/\(uid).jpg").delete()
+        for item in VoiceProfileConstants.items {
+            try? await storage.reference().child("voice_profiles/\(uid)/\(item.key).m4a").delete()
+        }
     }
     
-    @MainActor
+    // MARK: - 管理者機能
+    
     func updateAccountLockStatus(targetUID: String, isLocked: Bool) async {
-        try? await db.collection("users").document(targetUID).updateData(["isAccountLocked": isLocked])
-    }
-    
-    // MARK: - Google Sign In
-    
-    @MainActor
-    func signInWithGoogle() async throws {
-        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-              let rootViewController = windowScene.windows.first?.rootViewController else { return }
-        
-        let result = try await GIDSignIn.sharedInstance.signIn(withPresenting: rootViewController)
-        guard let idToken = result.user.idToken?.tokenString else { return }
-        
-        let credential = GoogleAuthProvider.credential(
-            withIDToken: idToken,
-            accessToken: result.user.accessToken.tokenString
-        )
-        
-        let authResult = try await Auth.auth().signIn(with: credential)
-        try await fetchOrCreateUserProfile(uid: authResult.user.uid)
+        do {
+            try await db.collection("users").document(targetUID).updateData([
+                "isAccountLocked": isLocked
+            ])
+        } catch {
+            print("アカウントロック更新エラー: \(error)")
+        }
     }
 }

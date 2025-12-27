@@ -88,7 +88,7 @@ struct VoiceMatchApp: App {
                     // AppDelegateと連携
                     delegate.messageService = messageService
                     // RevenueCat API Key（本番環境では環境変数等で管理推奨）
-                    purchaseManager.configure(apiKey: "appl_xxxxxxxxxxxxxxxxxxxxxxx")
+                    purchaseManager.configure(apiKey: "test_BeUPQCjIdabnSbhkFxfsZnCrvAC")
                 }
         }
     }
