@@ -10,119 +10,155 @@ struct VoiceEffectDefinition: Identifiable {
     let icon: String
     let isProOnly: Bool
     
-    // デフォルト値
-    let defaultPitch: Float      // -2400 ~ 2400 (cents)
-    let defaultRate: Float       // 0.5 ~ 2.0
-    let defaultReverb: Float     // 0 ~ 100
-    let defaultDistortion: Float // 0 ~ 100
+    // エフェクトパラメータ
+    let pitch: Float          // -2400 ~ 2400 (cents) - 100 = 半音
+    let rate: Float           // 0.5 ~ 2.0
+    let reverbPreset: AVAudioUnitReverbPreset?
+    let reverbMix: Float      // 0 ~ 100
+    let distortionPreset: AVAudioUnitDistortionPreset?
+    let distortionMix: Float  // 0 ~ 100
 }
 
 struct VoiceEffectConstants {
+    // ========================================
     // 無料ユーザー用エフェクト（4種類）
+    // ========================================
     static let freeEffects: [VoiceEffectDefinition] = [
+        // 1. ノーマル - エフェクトなし
         VoiceEffectDefinition(
             key: "normal",
             displayName: "ノーマル",
             icon: "waveform",
             isProOnly: false,
-            defaultPitch: 0,
-            defaultRate: 1.0,
-            defaultReverb: 0,
-            defaultDistortion: 0
+            pitch: 0,
+            rate: 1.0,
+            reverbPreset: nil,
+            reverbMix: 0,
+            distortionPreset: nil,
+            distortionMix: 0
         ),
+        // 2. 高い声 - 5半音上げ
         VoiceEffectDefinition(
             key: "high",
             displayName: "高い声",
             icon: "arrow.up",
             isProOnly: false,
-            defaultPitch: 800,
-            defaultRate: 1.0,
-            defaultReverb: 0,
-            defaultDistortion: 0
+            pitch: 500,
+            rate: 1.0,
+            reverbPreset: nil,
+            reverbMix: 0,
+            distortionPreset: nil,
+            distortionMix: 0
         ),
+        // 3. 低い声 - 5半音下げ
         VoiceEffectDefinition(
             key: "low",
             displayName: "低い声",
             icon: "arrow.down",
             isProOnly: false,
-            defaultPitch: -800,
-            defaultRate: 1.0,
-            defaultReverb: 0,
-            defaultDistortion: 0
+            pitch: -500,
+            rate: 1.0,
+            reverbPreset: nil,
+            reverbMix: 0,
+            distortionPreset: nil,
+            distortionMix: 0
         ),
+        // 4. エコー - ホールリバーブ
         VoiceEffectDefinition(
             key: "echo",
             displayName: "エコー",
             icon: "dot.radiowaves.left.and.right",
             isProOnly: false,
-            defaultPitch: 0,
-            defaultRate: 1.0,
-            defaultReverb: 50,
-            defaultDistortion: 0
+            pitch: 0,
+            rate: 1.0,
+            reverbPreset: .mediumHall,
+            reverbMix: 50,
+            distortionPreset: nil,
+            distortionMix: 0
         )
     ]
     
+    // ========================================
     // Proユーザー追加エフェクト（+6種類 = 合計10種類）
+    // ========================================
     static let proEffects: [VoiceEffectDefinition] = [
+        // 5. ロボット - 機械的な声
         VoiceEffectDefinition(
             key: "robot",
             displayName: "ロボット",
             icon: "cpu",
             isProOnly: true,
-            defaultPitch: -400,
-            defaultRate: 0.9,
-            defaultReverb: 30,
-            defaultDistortion: 40
+            pitch: -200,
+            rate: 0.95,
+            reverbPreset: .smallRoom,
+            reverbMix: 25,
+            distortionPreset: .speechRadioTower,
+            distortionMix: 35
         ),
+        // 6. チップマンク - 高くてかわいい声
         VoiceEffectDefinition(
             key: "chipmunk",
             displayName: "チップマンク",
             icon: "hare",
             isProOnly: true,
-            defaultPitch: 1200,
-            defaultRate: 1.3,
-            defaultReverb: 0,
-            defaultDistortion: 0
+            pitch: 1000,
+            rate: 1.15,
+            reverbPreset: nil,
+            reverbMix: 0,
+            distortionPreset: nil,
+            distortionMix: 0
         ),
+        // 7. 巨人 - 低くて重い声
         VoiceEffectDefinition(
             key: "giant",
             displayName: "巨人",
             icon: "figure.stand",
             isProOnly: true,
-            defaultPitch: -1200,
-            defaultRate: 0.8,
-            defaultReverb: 40,
-            defaultDistortion: 0
+            pitch: -800,
+            rate: 0.85,
+            reverbPreset: .cathedral,
+            reverbMix: 35,
+            distortionPreset: nil,
+            distortionMix: 0
         ),
+        // 8. ささやき - 囁くような声
         VoiceEffectDefinition(
             key: "whisper",
             displayName: "ささやき",
             icon: "mouth",
             isProOnly: true,
-            defaultPitch: 200,
-            defaultRate: 0.9,
-            defaultReverb: 60,
-            defaultDistortion: 0
+            pitch: 150,
+            rate: 0.92,
+            reverbPreset: .largeChamber,
+            reverbMix: 55,
+            distortionPreset: nil,
+            distortionMix: 0
         ),
+        // 9. スタジアム - 大きな空間にいるような声
         VoiceEffectDefinition(
             key: "stadium",
             displayName: "スタジアム",
             icon: "building.columns",
             isProOnly: true,
-            defaultPitch: 0,
-            defaultRate: 1.0,
-            defaultReverb: 80,
-            defaultDistortion: 0
+            pitch: 0,
+            rate: 1.0,
+            reverbPreset: .largeHall2,
+            reverbMix: 70,
+            distortionPreset: nil,
+            distortionMix: 0
         ),
+        // 10. 電話 - 電話越しのような声
         VoiceEffectDefinition(
             key: "telephone",
             displayName: "電話",
             icon: "phone",
             isProOnly: true,
-            defaultPitch: 300,
-            defaultRate: 1.0,
-            defaultReverb: 10,
-            defaultDistortion: 30
+            pitch: 150,
+            rate: 1.0,
+            reverbPreset: nil,
+            reverbMix: 0,
+            distortionPreset: .speechCosmicInterference,
+            distortionMix: 30
         )
     ]
     
@@ -131,11 +167,7 @@ struct VoiceEffectConstants {
     }
     
     static func getEffectsForUser(isPro: Bool) -> [VoiceEffectDefinition] {
-        if isPro {
-            return allEffects
-        } else {
-            return freeEffects
-        }
+        return isPro ? allEffects : freeEffects
     }
     
     static func getEffect(by key: String) -> VoiceEffectDefinition? {
@@ -143,20 +175,20 @@ struct VoiceEffectConstants {
     }
 }
 
-// MARK: - エフェクト設定（Proユーザー用カスタム調整）
+// MARK: - エフェクト設定（カスタム調整用）
 struct VoiceEffectSettings: Codable {
     var effectKey: String
-    var pitch: Float      // -2400 ~ 2400
-    var rate: Float       // 0.5 ~ 2.0
-    var reverb: Float     // 0 ~ 100
-    var distortion: Float // 0 ~ 100
+    var pitch: Float
+    var rate: Float
+    var reverb: Float      // リバーブ（0〜100）
+    var distortion: Float  // ディストーション（0〜100）
     
     init(from definition: VoiceEffectDefinition) {
         self.effectKey = definition.key
-        self.pitch = definition.defaultPitch
-        self.rate = definition.defaultRate
-        self.reverb = definition.defaultReverb
-        self.distortion = definition.defaultDistortion
+        self.pitch = definition.pitch
+        self.rate = definition.rate
+        self.reverb = definition.reverbMix
+        self.distortion = definition.distortionMix
     }
     
     init(effectKey: String, pitch: Float, rate: Float, reverb: Float, distortion: Float) {
@@ -172,309 +204,358 @@ struct VoiceEffectSettings: Codable {
 class VoiceEffectManager: ObservableObject {
     static let shared = VoiceEffectManager()
     
-    @Published var currentSettings: VoiceEffectSettings
+    @Published var currentEffect: VoiceEffectDefinition
     @Published var isProcessing = false
+    @Published var processingProgress: Float = 0
     
-    init() {
-        // デフォルトはノーマル
-        let normalEffect = VoiceEffectConstants.freeEffects[0]
-        self.currentSettings = VoiceEffectSettings(from: normalEffect)
+    // カスタム調整値（Proユーザー用）
+    @Published var customPitch: Float = 0
+    @Published var customRate: Float = 1.0
+    @Published var customReverbMix: Float = 0
+    @Published var customDistortionMix: Float = 0
+    
+    // 旧API互換性のため（現在のカスタム値を反映）
+    var currentSettings: VoiceEffectSettings {
+        return VoiceEffectSettings(
+            effectKey: currentEffect.key,
+            pitch: customPitch,
+            rate: customRate,
+            reverb: customReverbMix,
+            distortion: customDistortionMix
+        )
     }
     
-    // エフェクトを選択（プリセット適用）
+    init() {
+        self.currentEffect = VoiceEffectConstants.freeEffects[0]
+    }
+    
+    // エフェクトを選択
     func selectEffect(_ definition: VoiceEffectDefinition) {
-        currentSettings = VoiceEffectSettings(from: definition)
+        currentEffect = definition
+        customPitch = definition.pitch
+        customRate = definition.rate
+        customReverbMix = definition.reverbMix
+        customDistortionMix = definition.distortionMix
+        print("🎵 [VoiceEffectManager] エフェクト選択: \(definition.displayName)")
     }
     
     // カスタム調整（Proユーザー用）
     func updatePitch(_ value: Float) {
-        currentSettings.pitch = value
+        customPitch = max(-2400, min(2400, value))
     }
     
     func updateRate(_ value: Float) {
-        currentSettings.rate = value
+        customRate = max(0.5, min(2.0, value))
     }
     
     func updateReverb(_ value: Float) {
-        currentSettings.reverb = value
+        customReverbMix = max(0, min(100, value))
     }
     
     func updateDistortion(_ value: Float) {
-        currentSettings.distortion = value
+        customDistortionMix = max(0, min(100, value))
     }
     
-    // エフェクトを適用して新しい音声ファイルを生成
+    // MARK: - エフェクト適用（メイン処理）
+    
     func applyEffect(to inputURL: URL, completion: @escaping (Result<URL, Error>) -> Void) {
-        print("🎵 [VoiceEffectManager] applyEffect開始")
-        print("🎵 [VoiceEffectManager] 入力URL: \(inputURL.path)")
-        print("🎵 [VoiceEffectManager] 現在のエフェクト: \(currentSettings.effectKey)")
-        print("🎵 [VoiceEffectManager] pitch=\(currentSettings.pitch), rate=\(currentSettings.rate), reverb=\(currentSettings.reverb)")
+        print("🎵 ========== エフェクト処理開始 ==========")
+        print("🎵 エフェクト: \(currentEffect.displayName)")
+        print("🎵 入力ファイル: \(inputURL.path)")
+        print("🎵 パラメータ: pitch=\(customPitch), rate=\(customRate), reverb=\(customReverbMix), distortion=\(customDistortionMix)")
         
-        // ファイルの存在確認
-        let fileExists = FileManager.default.fileExists(atPath: inputURL.path)
-        print("🎵 [VoiceEffectManager] ファイル存在: \(fileExists)")
+        // ノーマルの場合はそのまま返す
+        if currentEffect.key == "normal" &&
+           customPitch == 0 &&
+           customRate == 1.0 &&
+           customReverbMix == 0 &&
+           customDistortionMix == 0 {
+            print("🎵 ノーマルエフェクト - 元ファイルをそのまま返す")
+            completion(.success(inputURL))
+            return
+        }
         
-        if !fileExists {
-            print("❌ [VoiceEffectManager] 入力ファイルが存在しません: \(inputURL.path)")
+        // ファイル存在確認
+        guard FileManager.default.fileExists(atPath: inputURL.path) else {
+            print("❌ 入力ファイルが存在しません")
             completion(.failure(VoiceEffectError.fileNotFound))
             return
         }
         
         // ファイルサイズ確認
-        if let attributes = try? FileManager.default.attributesOfItem(atPath: inputURL.path),
-           let fileSize = attributes[.size] as? Int64 {
-            print("🎵 [VoiceEffectManager] ファイルサイズ: \(fileSize) bytes")
-            if fileSize == 0 {
-                print("❌ [VoiceEffectManager] ファイルサイズが0です")
+        if let attrs = try? FileManager.default.attributesOfItem(atPath: inputURL.path),
+           let size = attrs[.size] as? Int64 {
+            print("🎵 入力ファイルサイズ: \(size) bytes")
+            if size == 0 {
+                print("❌ ファイルサイズが0です")
                 completion(.failure(VoiceEffectError.emptyFile))
                 return
             }
         }
         
-        // ノーマルの場合はそのまま返す
-        if currentSettings.effectKey == "normal" &&
-           currentSettings.pitch == 0 &&
-           currentSettings.rate == 1.0 &&
-           currentSettings.reverb == 0 &&
-           currentSettings.distortion == 0 {
-            print("🎵 [VoiceEffectManager] ノーマルエフェクト - 元ファイルをそのまま返す")
-            completion(.success(inputURL))
-            return
-        }
-        
         isProcessing = true
+        processingProgress = 0
         
-        // 非同期でトラックを読み込んでから処理
-        let asset = AVURLAsset(url: inputURL)
-        print("🎵 [VoiceEffectManager] AVURLAsset作成完了")
-        
-        // iOS 15+ では loadTracks を使用
-        if #available(iOS 15.0, *) {
-            Task {
-                do {
-                    let tracks = try await asset.loadTracks(withMediaType: .audio)
-                    print("🎵 [VoiceEffectManager] 非同期トラック読み込み完了: \(tracks.count)トラック")
-                    
-                    guard let audioTrack = tracks.first else {
-                        print("❌ [VoiceEffectManager] オーディオトラックが見つかりません")
-                        await MainActor.run {
-                            self.isProcessing = false
-                            completion(.failure(VoiceEffectError.noAudioTrack))
-                        }
-                        return
-                    }
-                    
-                    // duration も非同期で取得
-                    let duration = try await asset.load(.duration)
-                    print("🎵 [VoiceEffectManager] duration: \(CMTimeGetSeconds(duration))秒")
-                    
-                    let outputURL = try await self.processAudioAsync(
-                        asset: asset,
-                        audioTrack: audioTrack,
-                        duration: duration
-                    )
-                    
-                    await MainActor.run {
-                        self.isProcessing = false
-                        print("✅ [VoiceEffectManager] エフェクト処理完了: \(outputURL.path)")
-                        completion(.success(outputURL))
-                    }
-                } catch {
-                    print("❌ [VoiceEffectManager] エフェクト処理エラー: \(error)")
-                    print("❌ [VoiceEffectManager] エラー詳細: \(error.localizedDescription)")
-                    await MainActor.run {
-                        self.isProcessing = false
-                        // エラー時は元のファイルをそのまま返す
-                        completion(.success(inputURL))
-                    }
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+            
+            do {
+                let outputURL = try self.processWithAVAudioEngine(inputURL: inputURL)
+                
+                DispatchQueue.main.async {
+                    self.isProcessing = false
+                    self.processingProgress = 1.0
+                    print("✅ エフェクト処理完了: \(outputURL.path)")
+                    completion(.success(outputURL))
+                }
+            } catch {
+                print("❌ エフェクト処理エラー: \(error.localizedDescription)")
+                DispatchQueue.main.async {
+                    self.isProcessing = false
+                    self.processingProgress = 0
+                    // エラー時は元ファイルを返す（フォールバック）
+                    completion(.success(inputURL))
                 }
             }
+        }
+    }
+    
+    // MARK: - AVAudioEngine処理
+    
+    private func processWithAVAudioEngine(inputURL: URL) throws -> URL {
+        print("🎵 [AVAudioEngine] 処理開始...")
+        
+        // 入力ファイルを読み込み
+        let inputFile: AVAudioFile
+        do {
+            inputFile = try AVAudioFile(forReading: inputURL)
+        } catch {
+            print("❌ [AVAudioEngine] 入力ファイル読み込みエラー: \(error)")
+            throw VoiceEffectError.fileNotFound
+        }
+        
+        let format = inputFile.processingFormat
+        let frameCount = AVAudioFrameCount(inputFile.length)
+        
+        print("🎵 [AVAudioEngine] サンプルレート: \(format.sampleRate)")
+        print("🎵 [AVAudioEngine] チャンネル数: \(format.channelCount)")
+        print("🎵 [AVAudioEngine] フレーム数: \(frameCount)")
+        
+        guard frameCount > 0 else {
+            throw VoiceEffectError.emptyFile
+        }
+        
+        // 出力URL
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("m4a")
+        
+        // オーディオエンジンとノードを作成
+        let engine = AVAudioEngine()
+        let playerNode = AVAudioPlayerNode()
+        let timePitchNode = AVAudioUnitTimePitch()
+        let reverbNode = AVAudioUnitReverb()
+        let distortionNode = AVAudioUnitDistortion()
+        
+        // エフェクトパラメータを設定
+        timePitchNode.pitch = customPitch
+        timePitchNode.rate = customRate
+        print("🎵 [AVAudioEngine] TimePitch設定: pitch=\(customPitch), rate=\(customRate)")
+        
+        // リバーブ設定
+        if let reverbPreset = currentEffect.reverbPreset, customReverbMix > 0 {
+            reverbNode.loadFactoryPreset(reverbPreset)
+            reverbNode.wetDryMix = customReverbMix
+            print("🎵 [AVAudioEngine] Reverb設定: preset=\(reverbPreset.rawValue), mix=\(customReverbMix)")
         } else {
-            // iOS 14以下の場合は同期的に読み込み（loadValuesAsynchronously使用）
-            asset.loadValuesAsynchronously(forKeys: ["tracks", "duration"]) { [weak self] in
-                guard let self = self else { return }
-                
-                var tracksError: NSError?
-                var durationError: NSError?
-                
-                let tracksStatus = asset.statusOfValue(forKey: "tracks", error: &tracksError)
-                let durationStatus = asset.statusOfValue(forKey: "duration", error: &durationError)
-                
-                print("🎵 [VoiceEffectManager] tracks status: \(tracksStatus.rawValue)")
-                print("🎵 [VoiceEffectManager] duration status: \(durationStatus.rawValue)")
-                
-                if let error = tracksError {
-                    print("❌ [VoiceEffectManager] tracks読み込みエラー: \(error)")
-                }
-                if let error = durationError {
-                    print("❌ [VoiceEffectManager] duration読み込みエラー: \(error)")
-                }
-                
-                guard tracksStatus == .loaded, durationStatus == .loaded else {
-                    print("❌ [VoiceEffectManager] アセット読み込み失敗")
-                    DispatchQueue.main.async {
-                        self.isProcessing = false
-                        completion(.success(inputURL))
-                    }
-                    return
-                }
-                
-                let tracks = asset.tracks(withMediaType: .audio)
-                print("🎵 [VoiceEffectManager] トラック数: \(tracks.count)")
-                
-                guard let audioTrack = tracks.first else {
-                    print("❌ [VoiceEffectManager] オーディオトラックが見つかりません")
-                    DispatchQueue.main.async {
-                        self.isProcessing = false
-                        completion(.success(inputURL))
-                    }
-                    return
-                }
-                
-                do {
-                    let outputURL = try self.processAudioWithAVFoundationSync(
-                        asset: asset,
-                        audioTrack: audioTrack
-                    )
-                    DispatchQueue.main.async {
-                        self.isProcessing = false
-                        print("✅ [VoiceEffectManager] エフェクト処理完了: \(outputURL.path)")
-                        completion(.success(outputURL))
-                    }
-                } catch {
-                    print("❌ [VoiceEffectManager] 処理エラー: \(error)")
-                    DispatchQueue.main.async {
-                        self.isProcessing = false
-                        completion(.success(inputURL))
-                    }
-                }
-            }
-        }
-    }
-    
-    // iOS 15+ 用の非同期処理
-    @available(iOS 15.0, *)
-    private func processAudioAsync(asset: AVURLAsset, audioTrack: AVAssetTrack, duration: CMTime) async throws -> URL {
-        print("🎵 [processAudioAsync] 処理開始")
-        
-        // 出力URL
-        let outputURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension("m4a")
-        
-        print("🎵 [processAudioAsync] 出力URL: \(outputURL.path)")
-        
-        // AVMutableComposition を使用
-        let composition = AVMutableComposition()
-        guard let compositionAudioTrack = composition.addMutableTrack(
-            withMediaType: .audio,
-            preferredTrackID: kCMPersistentTrackID_Invalid
-        ) else {
-            print("❌ [processAudioAsync] compositionTrack作成失敗")
-            throw VoiceEffectError.compositionFailed
+            reverbNode.wetDryMix = 0
         }
         
-        let timeRange = CMTimeRange(start: .zero, duration: duration)
-        print("🎵 [processAudioAsync] timeRange: start=0, duration=\(CMTimeGetSeconds(duration))")
-        
-        try compositionAudioTrack.insertTimeRange(timeRange, of: audioTrack, at: .zero)
-        print("🎵 [processAudioAsync] insertTimeRange完了")
-        
-        // タイムスケールでピッチと速度を調整
-        if currentSettings.rate != 1.0 {
-            let scaledDuration = CMTimeMultiplyByFloat64(duration, multiplier: Float64(1.0 / currentSettings.rate))
-            compositionAudioTrack.scaleTimeRange(timeRange, toDuration: scaledDuration)
-            print("🎵 [processAudioAsync] rate調整完了: \(currentSettings.rate)")
+        // ディストーション設定
+        if let distortionPreset = currentEffect.distortionPreset, customDistortionMix > 0 {
+            distortionNode.loadFactoryPreset(distortionPreset)
+            distortionNode.wetDryMix = customDistortionMix
+            print("🎵 [AVAudioEngine] Distortion設定: preset=\(distortionPreset.rawValue), mix=\(customDistortionMix)")
+        } else {
+            distortionNode.wetDryMix = 0
         }
         
-        // エクスポート
-        guard let exportSession = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetAppleM4A) else {
-            print("❌ [processAudioAsync] exportSession作成失敗")
-            throw VoiceEffectError.exportFailed
+        // ノードをエンジンに追加
+        engine.attach(playerNode)
+        engine.attach(timePitchNode)
+        engine.attach(reverbNode)
+        engine.attach(distortionNode)
+        
+        // ノードを接続（チェーン）
+        engine.connect(playerNode, to: timePitchNode, format: format)
+        engine.connect(timePitchNode, to: reverbNode, format: format)
+        engine.connect(reverbNode, to: distortionNode, format: format)
+        engine.connect(distortionNode, to: engine.mainMixerNode, format: format)
+        
+        // 入力バッファを作成して読み込み
+        guard let inputBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else {
+            throw VoiceEffectError.bufferCreationFailed
         }
         
-        exportSession.outputURL = outputURL
-        exportSession.outputFileType = .m4a
-        
-        print("🎵 [processAudioAsync] エクスポート開始")
-        
-        await exportSession.export()
-        
-        print("🎵 [processAudioAsync] エクスポートステータス: \(exportSession.status.rawValue)")
-        
-        if exportSession.status == .failed {
-            print("❌ [processAudioAsync] エクスポート失敗: \(exportSession.error?.localizedDescription ?? "不明")")
-            throw exportSession.error ?? VoiceEffectError.exportFailed
-        }
-        
-        // 出力ファイルの確認
-        let outputExists = FileManager.default.fileExists(atPath: outputURL.path)
-        print("🎵 [processAudioAsync] 出力ファイル存在: \(outputExists)")
-        
-        if let attrs = try? FileManager.default.attributesOfItem(atPath: outputURL.path),
-           let size = attrs[.size] as? Int64 {
-            print("🎵 [processAudioAsync] 出力ファイルサイズ: \(size) bytes")
-        }
-        
-        return outputURL
-    }
-    
-    // iOS 14以下用の同期処理
-    private func processAudioWithAVFoundationSync(asset: AVURLAsset, audioTrack: AVAssetTrack) throws -> URL {
-        print("🎵 [processAudioSync] 処理開始")
-        
-        // 出力URL
-        let outputURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension("m4a")
-        
-        // AVMutableComposition を使用
-        let composition = AVMutableComposition()
-        guard let compositionAudioTrack = composition.addMutableTrack(
-            withMediaType: .audio,
-            preferredTrackID: kCMPersistentTrackID_Invalid
-        ) else {
-            throw VoiceEffectError.compositionFailed
-        }
-        
-        let timeRange = CMTimeRange(start: .zero, duration: asset.duration)
-        try compositionAudioTrack.insertTimeRange(timeRange, of: audioTrack, at: .zero)
-        
-        // タイムスケールでピッチと速度を調整
-        if currentSettings.rate != 1.0 {
-            let scaledDuration = CMTimeMultiplyByFloat64(asset.duration, multiplier: Float64(1.0 / currentSettings.rate))
-            compositionAudioTrack.scaleTimeRange(timeRange, toDuration: scaledDuration)
-        }
-        
-        // エクスポート
-        guard let exportSession = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetAppleM4A) else {
-            throw VoiceEffectError.exportFailed
-        }
-        
-        exportSession.outputURL = outputURL
-        exportSession.outputFileType = .m4a
-        
-        let semaphore = DispatchSemaphore(value: 0)
-        var exportError: Error?
-        
-        exportSession.exportAsynchronously {
-            if exportSession.status == .failed {
-                exportError = exportSession.error
-                print("❌ [processAudioSync] エクスポート失敗: \(exportSession.error?.localizedDescription ?? "不明")")
-            }
-            semaphore.signal()
-        }
-        
-        semaphore.wait()
-        
-        if let error = exportError {
+        do {
+            try inputFile.read(into: inputBuffer)
+        } catch {
+            print("❌ [AVAudioEngine] バッファ読み込みエラー: \(error)")
             throw error
         }
         
+        print("🎵 [AVAudioEngine] 入力バッファ読み込み完了: \(inputBuffer.frameLength) frames")
+        
+        // オフラインレンダリングモードを有効化
+        let maxFrames: AVAudioFrameCount = 4096
+        
+        do {
+            try engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: maxFrames)
+        } catch {
+            print("❌ [AVAudioEngine] オフラインレンダリング設定エラー: \(error)")
+            throw error
+        }
+        
+        // エンジンを開始
+        do {
+            try engine.start()
+        } catch {
+            print("❌ [AVAudioEngine] エンジン開始エラー: \(error)")
+            throw error
+        }
+        
+        // プレイヤーにバッファをスケジュールして再生
+        playerNode.scheduleBuffer(inputBuffer, completionHandler: nil)
+        playerNode.play()
+        
+        // 出力バッファを作成（rate変更を考慮して十分なサイズを確保）
+        let estimatedOutputFrames = AVAudioFrameCount(Double(frameCount) / Double(customRate)) + 10000
+        guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: estimatedOutputFrames) else {
+            throw VoiceEffectError.bufferCreationFailed
+        }
+        
+        // レンダリングループ
+        var outputFramePosition: AVAudioFramePosition = 0
+        let targetFrames = AVAudioFramePosition(Double(frameCount) / Double(customRate))
+        
+        print("🎵 [AVAudioEngine] レンダリング開始 (目標: \(targetFrames) frames)")
+        
+        while engine.manualRenderingSampleTime < targetFrames {
+            let framesToRender = min(maxFrames, outputBuffer.frameCapacity - AVAudioFrameCount(outputFramePosition))
+            
+            guard framesToRender > 0 else { break }
+            
+            guard let tempBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: framesToRender) else {
+                break
+            }
+            
+            do {
+                let status = try engine.renderOffline(framesToRender, to: tempBuffer)
+                
+                switch status {
+                case .success:
+                    // tempBufferの内容をoutputBufferにコピー
+                    appendBuffer(from: tempBuffer, to: outputBuffer, at: AVAudioFrameCount(outputFramePosition), channelCount: Int(format.channelCount))
+                    outputFramePosition += AVAudioFramePosition(tempBuffer.frameLength)
+                    
+                    // 進捗更新
+                    let progress = Float(outputFramePosition) / Float(targetFrames)
+                    DispatchQueue.main.async { [weak self] in
+                        self?.processingProgress = min(progress, 0.99)
+                    }
+                    
+                case .insufficientDataFromInputNode:
+                    // データ不足 - 処理終了
+                    break
+                    
+                case .cannotDoInCurrentContext:
+                    // 現在のコンテキストでは処理不可
+                    break
+                    
+                case .error:
+                    throw VoiceEffectError.renderingFailed
+                    
+                @unknown default:
+                    break
+                }
+            } catch {
+                print("❌ [AVAudioEngine] レンダリングエラー: \(error)")
+                break
+            }
+        }
+        
+        // 最終フレーム長を設定
+        outputBuffer.frameLength = AVAudioFrameCount(outputFramePosition)
+        
+        print("🎵 [AVAudioEngine] レンダリング完了: \(outputBuffer.frameLength) frames")
+        
+        // クリーンアップ
+        playerNode.stop()
+        engine.stop()
+        
+        // 出力ファイルに書き込み
+        let outputSettings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatMPEG4AAC,
+            AVSampleRateKey: format.sampleRate,
+            AVNumberOfChannelsKey: format.channelCount,
+            AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
+        ]
+        
+        let outputFile: AVAudioFile
+        do {
+            outputFile = try AVAudioFile(
+                forWriting: outputURL,
+                settings: outputSettings,
+                commonFormat: format.commonFormat,
+                interleaved: format.isInterleaved
+            )
+        } catch {
+            print("❌ [AVAudioEngine] 出力ファイル作成エラー: \(error)")
+            throw VoiceEffectError.exportFailed
+        }
+        
+        do {
+            try outputFile.write(from: outputBuffer)
+        } catch {
+            print("❌ [AVAudioEngine] ファイル書き込みエラー: \(error)")
+            throw VoiceEffectError.exportFailed
+        }
+        
+        // 出力ファイルサイズ確認
+        if let attrs = try? FileManager.default.attributesOfItem(atPath: outputURL.path),
+           let size = attrs[.size] as? Int64 {
+            print("✅ [AVAudioEngine] 出力ファイルサイズ: \(size) bytes")
+        }
+        
+        print("🎵 ========== エフェクト処理完了 ==========")
+        
         return outputURL
+    }
+    
+    // MARK: - バッファコピーヘルパー
+    
+    private func appendBuffer(from source: AVAudioPCMBuffer, to destination: AVAudioPCMBuffer, at position: AVAudioFrameCount, channelCount: Int) {
+        guard let srcData = source.floatChannelData,
+              let dstData = destination.floatChannelData else { return }
+        
+        let framesToCopy = Int(source.frameLength)
+        let dstCapacity = Int(destination.frameCapacity)
+        
+        for channel in 0..<channelCount {
+            let src = srcData[channel]
+            let dst = dstData[channel]
+            
+            for frame in 0..<framesToCopy {
+                let dstIndex = Int(position) + frame
+                if dstIndex < dstCapacity {
+                    dst[dstIndex] = src[frame]
+                }
+            }
+        }
     }
 }
 
+// MARK: - エラー定義
 enum VoiceEffectError: LocalizedError {
     case bufferCreationFailed
     case renderingFailed

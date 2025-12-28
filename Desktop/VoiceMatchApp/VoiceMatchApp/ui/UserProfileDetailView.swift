@@ -26,7 +26,7 @@ struct UserProfileDetailView: View {
                 VStack(spacing: 20) {
                     headerSection
                     selectionProfileSection
-                    freeInputProfileSection
+                    hashtagSection
                     voiceProfileSection
                     actionButtonsSection
                     reportBlockSection
@@ -81,7 +81,7 @@ struct UserProfileDetailView: View {
     // MARK: - Header Section
     
     private var headerSection: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 12) {
             UserAvatarView(imageURL: user.iconImageURL, size: 120)
             
             Text(user.username)
@@ -89,23 +89,21 @@ struct UserProfileDetailView: View {
                 .fontWeight(.bold)
             
             if commonPoints > 0 {
-                CommonPointsBadge(count: commonPoints)
-            }
-            
-            if isAlreadyLiked {
                 HStack {
-                    Image(systemName: "heart.fill")
-                    Text("いいね済み")
+                    Image(systemName: "sparkles")
+                        .foregroundColor(.yellow)
+                    Text("\(commonPoints)個の共通点")
+                        .font(.subheadline)
+                        .foregroundColor(.brandPurple)
                 }
-                .font(.caption)
-                .foregroundColor(.white)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
-                .background(Color.pink)
+                .background(Color.brandPurple.opacity(0.1))
                 .cornerRadius(15)
             }
         }
-        .padding()
+        .padding(.vertical)
+        .frame(maxWidth: .infinity)
         .background(Color.white)
         .cornerRadius(15)
         .padding(.horizontal)
@@ -138,14 +136,15 @@ struct UserProfileDetailView: View {
     private func selectionItemRow(displayName: String, value: String, key: String) -> some View {
         HStack {
             Text(displayName)
+                .font(.subheadline)
                 .foregroundColor(.secondary)
-                .frame(width: 100, alignment: .leading)
-            
-            Text(value)
-                .fontWeight(.medium)
             
             Spacer()
             
+            Text(value)
+                .font(.subheadline)
+            
+            // 共通点マーク
             if let myValue = userService.currentUserProfile?.profileItems[key],
                myValue == value {
                 Image(systemName: "sparkles")
@@ -160,22 +159,22 @@ struct UserProfileDetailView: View {
         .padding(.horizontal)
     }
     
-    // MARK: - Free Input Profile Section
+    // MARK: - Hashtag Section
     
     @ViewBuilder
-    private var freeInputProfileSection: some View {
-        let publicFreeItems = user.publicProfileFreeItems
-        if !publicFreeItems.isEmpty {
+    private var hashtagSection: some View {
+        if !user.hashtags.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
-                Text("趣味・好み")
+                Text("ハッシュタグ")
                     .font(.headline)
                     .padding(.horizontal)
                 
-                ForEach(ProfileConstants.freeInputItems, id: \.key) { itemDef in
-                    if let values = publicFreeItems[itemDef.key], !values.isEmpty {
-                        freeInputItemSection(displayName: itemDef.displayName, values: values, key: itemDef.key)
+                FlowLayout(spacing: 8) {
+                    ForEach(user.hashtags, id: \.self) { tag in
+                        hashtagChip(tag: tag)
                     }
                 }
+                .padding(.horizontal)
             }
             .padding(.vertical)
             .background(Color.white)
@@ -184,41 +183,25 @@ struct UserProfileDetailView: View {
         }
     }
     
-    private func freeInputItemSection(displayName: String, values: [String], key: String) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(displayName)
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .padding(.horizontal)
-            
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(values, id: \.self) { value in
-                        freeInputTag(value: value, key: key)
-                    }
-                }
-                .padding(.horizontal)
-            }
-        }
-        .padding(.vertical, 4)
-    }
-    
-    private func freeInputTag(value: String, key: String) -> some View {
-        HStack(spacing: 4) {
-            Text(value)
+    private func hashtagChip(tag: String) -> some View {
+        let isCommon = userService.currentUserProfile?.hashtags.contains(where: {
+            $0.lowercased() == tag.lowercased()
+        }) ?? false
+        
+        return HStack(spacing: 4) {
+            Text("#\(tag)")
                 .font(.caption)
             
-            if let myValues = userService.currentUserProfile?.profileFreeItems[key],
-               myValues.contains(value) {
+            if isCommon {
                 Image(systemName: "sparkles")
                     .font(.caption2)
                     .foregroundColor(.yellow)
             }
         }
-        .foregroundColor(.brandPurple)
+        .foregroundColor(isCommon ? .white : .brandPurple)
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .background(Color.brandPurple.opacity(0.1))
+        .background(isCommon ? Color.brandPurple : Color.brandPurple.opacity(0.1))
         .cornerRadius(15)
     }
     
@@ -348,22 +331,29 @@ struct UserProfileDetailView: View {
                 }
             }
             
+            // いいね不可の場合のメッセージ
             if !isAlreadyLiked && !userService.canSendLike() {
-                Text("いいねの残り回数がありません（\(userService.formattedTimeUntilReset())後にリセット）")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                VStack(spacing: 4) {
+                    Text("いいね上限に達しました")
+                        .font(.caption)
+                        .foregroundColor(.red)
+                    Text("リセットまで: \(userService.formattedTimeUntilReset())")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
             }
         }
         .padding(.vertical)
+        .background(Color.white)
+        .cornerRadius(15)
+        .padding(.horizontal)
     }
     
-    // MARK: - Report Block Section
+    // MARK: - Report & Block Section
     
     private var reportBlockSection: some View {
         HStack(spacing: 20) {
-            Button(action: {
-                showReportSheet = true
-            }) {
+            Button(action: { showReportSheet = true }) {
                 HStack {
                     Image(systemName: "exclamationmark.triangle")
                     Text("通報")
@@ -372,24 +362,31 @@ struct UserProfileDetailView: View {
                 .foregroundColor(.orange)
             }
             
-            Button(action: {
-                showBlockAlert = true
-            }) {
+            Button(action: { showBlockAlert = true }) {
                 HStack {
-                    Image(systemName: "nosign")
+                    Image(systemName: "hand.raised")
                     Text("ブロック")
                 }
                 .font(.caption)
                 .foregroundColor(.red)
             }
         }
-        .padding(.top, 10)
+        .padding(.vertical)
     }
     
     // MARK: - Actions
     
+    private func skipUser() {
+        Task {
+            await userService.skipUser(targetUID: user.uid)
+            dismiss()
+        }
+    }
+    
     private func sendLike() {
+        guard !isLiking else { return }
         isLiking = true
+        
         Task {
             let success = await userService.sendLike(toUserID: user.uid)
             isLiking = false
@@ -397,13 +394,6 @@ struct UserProfileDetailView: View {
                 showLikeSuccess = true
             }
         }
-    }
-    
-    private func skipUser() {
-        Task {
-            await userService.skipUser(targetUID: user.uid)
-        }
-        dismiss()
     }
     
     private func blockUser() {
@@ -424,17 +414,11 @@ struct UserProfileDetailView: View {
     }
     
     private func requestNotificationPermission() {
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { granted, error in
-            if granted {
-                DispatchQueue.main.async {
-                    UIApplication.shared.registerForRemoteNotifications()
-                }
-            }
-        }
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
     }
 }
 
-// MARK: - Report View
+// MARK: - ReportView
 
 struct ReportView: View {
     @Environment(\.dismiss) var dismiss
@@ -523,3 +507,5 @@ struct ReportView: View {
         }
     }
 }
+
+// FlowLayoutはFlowLayout.swiftで定義済み

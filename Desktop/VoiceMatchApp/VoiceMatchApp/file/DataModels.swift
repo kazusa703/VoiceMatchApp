@@ -80,7 +80,10 @@ struct UserProfile: Identifiable, Codable {
     // 選択式プロフィール（単一選択）
     var profileItems: [String: String]
     
-    // 自由入力プロフィール（複数可）
+    // ハッシュタグ（最大100個）
+    var hashtags: [String]
+    
+    // 旧形式との互換性のため残す（読み取り専用）
     var profileFreeItems: [String: [String]]
     
     // プロフィール項目の公開設定（true = 公開）
@@ -135,7 +138,7 @@ struct UserProfile: Identifiable, Codable {
         return result
     }
     
-    // 公開されている自由入力プロフィール項目を取得
+    // 公開されている自由入力プロフィール項目を取得（旧形式互換）
     var publicProfileFreeItems: [String: [String]] {
         var result: [String: [String]] = [:]
         for (key, values) in profileFreeItems {
@@ -146,9 +149,12 @@ struct UserProfile: Identifiable, Codable {
         return result
     }
     
+    // ハッシュタグの最大数
+    static let maxHashtags = 100
+    
     enum CodingKeys: String, CodingKey {
         case uid, username, iconImageURL, voiceProfiles
-        case profileItems, profileFreeItems, profileItemsVisibility
+        case profileItems, hashtags, profileFreeItems, profileItemsVisibility
         case privacySettings, notificationSettings
         case blockedUserIDs, skippedUserIDs, matchedUserIDs
         case likedUserIDs, receivedLikeUserIDs
@@ -166,6 +172,20 @@ struct UserProfile: Identifiable, Codable {
         
         voiceProfiles = try container.decodeIfPresent([String: VoiceProfileData].self, forKey: .voiceProfiles) ?? [:]
         profileItems = try container.decodeIfPresent([String: String].self, forKey: .profileItems) ?? [:]
+        
+        // ハッシュタグを読み込み（なければ旧形式から変換）
+        if let tags = try container.decodeIfPresent([String].self, forKey: .hashtags) {
+            hashtags = tags
+        } else {
+            // 旧形式のprofileFreeItemsからハッシュタグを生成
+            let oldFreeItems = try container.decodeIfPresent([String: [String]].self, forKey: .profileFreeItems) ?? [:]
+            var convertedTags: [String] = []
+            for (_, values) in oldFreeItems {
+                convertedTags.append(contentsOf: values)
+            }
+            hashtags = Array(Set(convertedTags)).prefix(UserProfile.maxHashtags).map { $0 }
+        }
+        
         profileFreeItems = try container.decodeIfPresent([String: [String]].self, forKey: .profileFreeItems) ?? [:]
         profileItemsVisibility = try container.decodeIfPresent([String: Bool].self, forKey: .profileItemsVisibility) ?? [:]
         privacySettings = try container.decodeIfPresent([String: Bool].self, forKey: .privacySettings) ?? [:]
@@ -198,6 +218,7 @@ struct UserProfile: Identifiable, Codable {
         iconImageURL: String? = nil,
         voiceProfiles: [String: VoiceProfileData] = [:],
         profileItems: [String: String] = [:],
+        hashtags: [String] = [],
         profileFreeItems: [String: [String]] = [:],
         profileItemsVisibility: [String: Bool] = [:],
         privacySettings: [String: Bool] = [:],
@@ -223,6 +244,7 @@ struct UserProfile: Identifiable, Codable {
         self.iconImageURL = iconImageURL
         self.voiceProfiles = voiceProfiles
         self.profileItems = profileItems
+        self.hashtags = hashtags
         self.profileFreeItems = profileFreeItems
         self.profileItemsVisibility = profileItemsVisibility
         self.privacySettings = privacySettings
@@ -248,47 +270,19 @@ struct UserProfile: Identifiable, Codable {
 // MARK: - マッチング情報
 struct UserMatch: Identifiable, Codable {
     @DocumentID var id: String?
-    let user1ID: String
-    let user2ID: String
+    var user1ID: String
+    var user2ID: String
     var lastMessageDate: Date
     var matchDate: Date
-    
-    init(id: String? = nil, user1ID: String, user2ID: String, lastMessageDate: Date = Date(), matchDate: Date = Date()) {
-        self.id = id
-        self.user1ID = user1ID
-        self.user2ID = user2ID
-        self.lastMessageDate = lastMessageDate
-        self.matchDate = matchDate
-    }
 }
 
 // MARK: - いいね
 struct Like: Identifiable, Codable {
     @DocumentID var id: String?
-    let fromUserID: String
-    let toUserID: String
-    let createdAt: Date
+    var fromUserID: String
+    var toUserID: String
+    var createdAt: Date
     var status: LikeStatus
-    
-    enum CodingKeys: String, CodingKey {
-        case id, fromUserID, toUserID, createdAt, status
-    }
-    
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        id = try container.decodeIfPresent(String.self, forKey: .id)
-        fromUserID = try container.decode(String.self, forKey: .fromUserID)
-        toUserID = try container.decode(String.self, forKey: .toUserID)
-        createdAt = try container.decode(Date.self, forKey: .createdAt)
-        status = try container.decodeIfPresent(LikeStatus.self, forKey: .status) ?? .pending
-    }
-    
-    init(fromUserID: String, toUserID: String, createdAt: Date, status: LikeStatus = .pending) {
-        self.fromUserID = fromUserID
-        self.toUserID = toUserID
-        self.createdAt = createdAt
-        self.status = status
-    }
 }
 
 enum LikeStatus: String, Codable {
@@ -300,45 +294,21 @@ enum LikeStatus: String, Codable {
 // MARK: - ボイスメッセージ
 struct VoiceMessage: Identifiable, Codable {
     @DocumentID var id: String?
-    let senderID: String
-    let audioURL: String
-    let duration: Double
-    let timestamp: Date
+    var senderID: String
+    var audioURL: String
+    var duration: Double
+    var timestamp: Date
     var isRead: Bool
     var effectUsed: String?
-    
-    enum CodingKeys: String, CodingKey {
-        case id, senderID, audioURL, duration, timestamp, isRead, effectUsed
-    }
-    
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        id = try container.decodeIfPresent(String.self, forKey: .id)
-        senderID = try container.decode(String.self, forKey: .senderID)
-        audioURL = try container.decode(String.self, forKey: .audioURL)
-        duration = try container.decode(Double.self, forKey: .duration)
-        timestamp = try container.decode(Date.self, forKey: .timestamp)
-        isRead = try container.decodeIfPresent(Bool.self, forKey: .isRead) ?? false
-        effectUsed = try container.decodeIfPresent(String.self, forKey: .effectUsed)
-    }
-    
-    init(senderID: String, audioURL: String, duration: Double, timestamp: Date, isRead: Bool = false, effectUsed: String? = nil) {
-        self.senderID = senderID
-        self.audioURL = audioURL
-        self.duration = duration
-        self.timestamp = timestamp
-        self.isRead = isRead
-        self.effectUsed = effectUsed
-    }
 }
 
-// MARK: - 通報データ
+// MARK: - 通報
 struct Report: Identifiable, Codable {
     @DocumentID var id: String?
-    let reporterID: String
-    let targetID: String
-    let reason: String
-    let comment: String
-    let audioURL: String?
-    let timestamp: Date
+    var reporterID: String
+    var targetID: String
+    var reason: String
+    var comment: String
+    var audioURL: String?
+    var timestamp: Date
 }

@@ -98,25 +98,9 @@ struct ProfileEditView: View {
                         }
                     }
                     
-                    // 5. 自由入力プロフィール
-                    Section(header: Text("趣味・好み")) {
-                        Text("複数入力できます。入力後にEnterまたは追加ボタンを押してください。")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        
-                        ForEach(ProfileConstants.freeInputItems, id: \.key) { itemDef in
-                            FreeInputProfileRow(
-                                itemDef: itemDef,
-                                values: Binding(
-                                    get: { editingUser.profileFreeItems[itemDef.key] ?? [] },
-                                    set: { editingUser.profileFreeItems[itemDef.key] = $0 }
-                                ),
-                                isPublic: Binding(
-                                    get: { editingUser.profileItemsVisibility[itemDef.key] ?? false },
-                                    set: { editingUser.profileItemsVisibility[itemDef.key] = $0 }
-                                )
-                            )
-                        }
+                    // 5. ハッシュタグ
+                    Section(header: Text("ハッシュタグ")) {
+                        HashtagInputView(hashtags: $editingUser.hashtags)
                     }
                 }
                 
@@ -197,6 +181,134 @@ struct ProfileEditView: View {
     }
 }
 
+// MARK: - ハッシュタグ入力ビュー
+struct HashtagInputView: View {
+    @Binding var hashtags: [String]
+    @State private var inputText = ""
+    @FocusState private var isInputFocused: Bool
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // 説明
+            Text("興味・趣味・好きなものなどをハッシュタグで入力してください（最大100個）")
+                .font(.caption)
+                .foregroundColor(.secondary)
+            
+            // 確定済みハッシュタグ
+            if !hashtags.isEmpty {
+                FlowLayout(spacing: 8) {
+                    ForEach(hashtags, id: \.self) { tag in
+                        ConfirmedHashtagChip(text: tag) {
+                            hashtags.removeAll { $0 == tag }
+                        }
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            
+            // 入力欄（FlowLayoutの外）
+            if hashtags.count < UserProfile.maxHashtags {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 8) {
+                        // #マーク
+                        Text("#")
+                            .font(.title3)
+                            .fontWeight(.bold)
+                            .foregroundColor(.brandPurple)
+                        
+                        // テキスト入力
+                        TextField("タグを入力（例: Netflix）", text: $inputText)
+                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                            .focused($isInputFocused)
+                            .onSubmit {
+                                confirmHashtag()
+                            }
+                        
+                        // 確定ボタン
+                        Button(action: confirmHashtag) {
+                            Text("確定")
+                                .font(.subheadline)
+                                .fontWeight(.bold)
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 10)
+                                .background(inputText.trimmingCharacters(in: .whitespaces).isEmpty ? Color.gray : Color.green)
+                                .cornerRadius(10)
+                        }
+                        .disabled(inputText.trimmingCharacters(in: .whitespaces).isEmpty)
+                    }
+                    
+                    // ヒント
+                    if inputText.isEmpty {
+                        Text("例: Netflix、アニメ、ゲーム、カフェ巡り、猫、読書")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    } else {
+                        Text("「確定」を押すか、Enterキーでタグを追加")
+                            .font(.caption2)
+                            .foregroundColor(.orange)
+                    }
+                }
+            }
+            
+            // カウンター
+            HStack {
+                Text("\(hashtags.count) / \(UserProfile.maxHashtags)")
+                    .font(.caption)
+                    .foregroundColor(hashtags.count >= UserProfile.maxHashtags ? .red : .secondary)
+                
+                if hashtags.count >= UserProfile.maxHashtags {
+                    Text("上限に達しました")
+                        .font(.caption)
+                        .foregroundColor(.red)
+                }
+            }
+        }
+        .padding(.vertical, 8)
+    }
+    
+    private func confirmHashtag() {
+        let trimmed = inputText
+            .trimmingCharacters(in: .whitespaces)
+            .replacingOccurrences(of: "#", with: "")
+        
+        if !trimmed.isEmpty && !hashtags.contains(trimmed) && hashtags.count < UserProfile.maxHashtags {
+            hashtags.append(trimmed)
+            inputText = ""  // 入力欄をクリア
+            // フォーカスを維持して連続入力を可能に
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                isInputFocused = true
+            }
+        }
+    }
+}
+
+// MARK: - 確定済みハッシュタグチップ（色付き）
+struct ConfirmedHashtagChip: View {
+    let text: String
+    var onRemove: () -> Void
+    
+    var body: some View {
+        HStack(spacing: 4) {
+            Text("#\(text)")
+                .font(.subheadline)
+                .fontWeight(.medium)
+            
+            Button(action: onRemove) {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.caption)
+            }
+        }
+        .foregroundColor(.white)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color.brandPurple)
+        .cornerRadius(20)
+    }
+}
+
+
+
 // MARK: - 選択式プロフィール行
 
 struct SelectionProfileRow: View {
@@ -241,153 +353,9 @@ struct SelectionProfileRow: View {
     }
 }
 
-// MARK: - 自由入力プロフィール行
-
-struct FreeInputProfileRow: View {
-    let itemDef: ProfileItemDefinition
-    @Binding var values: [String]
-    @Binding var isPublic: Bool
-    
-    @State private var inputText = ""
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // ヘッダー
-            HStack {
-                Text(itemDef.displayName)
-                    .fontWeight(.medium)
-                
-                Spacer()
-                
-                Toggle(isOn: $isPublic) {
-                    EmptyView()
-                }
-                .toggleStyle(SwitchToggleStyle(tint: .green))
-                .labelsHidden()
-                
-                Text(isPublic ? "公開" : "非公開")
-                    .font(.caption)
-                    .foregroundColor(isPublic ? .green : .gray)
-                    .frame(width: 50)
-            }
-            
-            // 入力済みタグ
-            if !values.isEmpty {
-                FlowLayout(spacing: 8) {
-                    ForEach(values, id: \.self) { value in
-                        TagView(text: value) {
-                            values.removeAll { $0 == value }
-                        }
-                    }
-                }
-            }
-            
-            // 入力欄
-            if values.count < itemDef.maxInputCount {
-                HStack {
-                    TextField(itemDef.placeholder, text: $inputText)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .onSubmit {
-                            addValue()
-                        }
-                    
-                    Button(action: addValue) {
-                        Image(systemName: "plus.circle.fill")
-                            .foregroundColor(.brandPurple)
-                            .font(.title2)
-                    }
-                    .disabled(inputText.trimmingCharacters(in: .whitespaces).isEmpty)
-                }
-            } else {
-                Text("最大\(itemDef.maxInputCount)件まで")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-        }
-        .padding(.vertical, 8)
-    }
-    
-    private func addValue() {
-        let trimmed = inputText.trimmingCharacters(in: .whitespaces)
-        if !trimmed.isEmpty && !values.contains(trimmed) && values.count < itemDef.maxInputCount {
-            values.append(trimmed)
-            inputText = ""
-        }
-    }
-}
-
-// MARK: - タグビュー
-
-struct TagView: View {
-    let text: String
-    var onRemove: () -> Void
-    
-    var body: some View {
-        HStack(spacing: 4) {
-            Text(text)
-                .font(.caption)
-            
-            Button(action: onRemove) {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.caption)
-            }
-        }
-        .foregroundColor(.brandPurple)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(Color.brandPurple.opacity(0.1))
-        .cornerRadius(15)
-    }
-}
-
 // MARK: - フローレイアウト（タグを折り返し表示）
 
-struct FlowLayout: Layout {
-    var spacing: CGFloat = 8
-    
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let result = FlowResult(in: proposal.width ?? 0, subviews: subviews, spacing: spacing)
-        return result.size
-    }
-    
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let result = FlowResult(in: bounds.width, subviews: subviews, spacing: spacing)
-        for (index, subview) in subviews.enumerated() {
-            subview.place(at: CGPoint(x: bounds.minX + result.positions[index].x,
-                                      y: bounds.minY + result.positions[index].y),
-                         proposal: .unspecified)
-        }
-    }
-    
-    struct FlowResult {
-        var size: CGSize = .zero
-        var positions: [CGPoint] = []
-        
-        init(in maxWidth: CGFloat, subviews: Subviews, spacing: CGFloat) {
-            var x: CGFloat = 0
-            var y: CGFloat = 0
-            var rowHeight: CGFloat = 0
-            
-            for subview in subviews {
-                let size = subview.sizeThatFits(.unspecified)
-                
-                if x + size.width > maxWidth && x > 0 {
-                    x = 0
-                    y += rowHeight + spacing
-                    rowHeight = 0
-                }
-                
-                positions.append(CGPoint(x: x, y: y))
-                rowHeight = max(rowHeight, size.height)
-                x += size.width + spacing
-                
-                self.size.width = max(self.size.width, x)
-            }
-            
-            self.size.height = y + rowHeight
-        }
-    }
-}
+// FlowLayoutは別ファイル（Components.swift等）で定義してください
 
 // MARK: - ボイスプロフィール行
 
@@ -565,9 +533,9 @@ struct ProfileVoiceRecordingView: View {
                 }
                 
                 if hasRecording && !audioRecorder.isRecording {
-                    HStack(spacing: 20) {
+                    HStack(spacing: 30) {
                         Button(action: resetRecording) {
-                            VStack {
+                            VStack(spacing: 4) {
                                 Image(systemName: "arrow.counterclockwise")
                                     .font(.title2)
                                 Text("撮り直す")
@@ -576,11 +544,9 @@ struct ProfileVoiceRecordingView: View {
                             .foregroundColor(.secondary)
                         }
                         
-                        Spacer()
-                        
                         Button(action: previewAudio) {
-                            VStack {
-                                Image(systemName: audioPlayer.isPlaying ? "stop.circle" : "play.circle")
+                            VStack(spacing: 4) {
+                                Image(systemName: audioPlayer.isPlaying ? "stop.circle.fill" : "play.circle.fill")
                                     .font(.title2)
                                 Text(audioPlayer.isPlaying ? "停止" : "試聴")
                                     .font(.caption)
@@ -588,24 +554,23 @@ struct ProfileVoiceRecordingView: View {
                             .foregroundColor(.brandPurple)
                         }
                         
-                        Spacer()
-                        
                         Button(action: saveVoice) {
-                            if isProcessing {
-                                ProgressView()
-                            } else {
-                                VStack {
+                            VStack(spacing: 4) {
+                                if isProcessing {
+                                    ProgressView()
+                                        .frame(width: 28, height: 28)
+                                } else {
                                     Image(systemName: "checkmark.circle.fill")
                                         .font(.title2)
-                                    Text("保存")
-                                        .font(.caption)
                                 }
-                                .foregroundColor(.green)
+                                Text("保存")
+                                    .font(.caption)
                             }
+                            .foregroundColor(recordingDuration >= voiceItem.minDuration ? .green : .gray)
                         }
                         .disabled(recordingDuration < voiceItem.minDuration || isProcessing)
                     }
-                    .padding(.horizontal, 40)
+                    .padding(.horizontal, 30)
                 }
                 
                 Spacer()
@@ -615,7 +580,8 @@ struct ProfileVoiceRecordingView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("キャンセル") {
-                        cleanup()
+                        audioRecorder.cleanup()
+                        audioPlayer.stopPlayback()
                         dismiss()
                     }
                 }
@@ -627,42 +593,31 @@ struct ProfileVoiceRecordingView: View {
                 selectedEffect = voiceItem.allowsEffect ? VoiceEffectConstants.freeEffects.first : nil
             }
             .onDisappear {
-                cleanup()
+                timer?.invalidate()
             }
         }
     }
     
     private func toggleRecording() {
         if audioRecorder.isRecording {
-            stopRecording()
+            audioRecorder.stopRecording()
+            timer?.invalidate()
+            hasRecording = audioRecorder.recordingURL != nil
         } else {
-            startRecording()
-        }
-    }
-    
-    private func startRecording() {
-        audioPlayer.stopPlayback()
-        recordingDuration = 0
-        processedURL = nil
-        hasRecording = false
-        
-        audioRecorder.startRecording()
-        
-        timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
-            if audioRecorder.isRecording {
+            audioPlayer.stopPlayback()
+            recordingDuration = 0
+            processedURL = nil
+            audioRecorder.startRecording()
+            
+            timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
                 recordingDuration += 0.1
-                if recordingDuration >= voiceItem.maxDuration {
-                    stopRecording()
+                if recordingDuration >= 60 {
+                    audioRecorder.stopRecording()
+                    timer?.invalidate()
+                    hasRecording = true
                 }
             }
         }
-    }
-    
-    private func stopRecording() {
-        timer?.invalidate()
-        timer = nil
-        audioRecorder.stopRecording()
-        hasRecording = audioRecorder.recordingURL != nil
     }
     
     private func resetRecording() {
@@ -671,15 +626,6 @@ struct ProfileVoiceRecordingView: View {
         recordingDuration = 0
         processedURL = nil
         hasRecording = false
-    }
-    
-    private func cleanup() {
-        timer?.invalidate()
-        timer = nil
-        audioPlayer.stopPlayback()
-        if audioRecorder.isRecording {
-            audioRecorder.stopRecording()
-        }
     }
     
     private func selectEffect(_ effect: VoiceEffectDefinition) {
@@ -784,7 +730,7 @@ struct EffectSettingsView: View {
     var body: some View {
         NavigationView {
             Form {
-                Section(header: Text("ピッチ")) {
+                Section(header: Text("ピッチ（声の高さ）")) {
                     HStack {
                         Text("低い")
                         Slider(value: Binding(
@@ -793,9 +739,12 @@ struct EffectSettingsView: View {
                         ), in: -2400...2400)
                         Text("高い")
                     }
+                    Text("値: \(Int(effectManager.currentSettings.pitch))")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
                 
-                Section(header: Text("スピード")) {
+                Section(header: Text("速度")) {
                     HStack {
                         Text("遅い")
                         Slider(value: Binding(
@@ -804,6 +753,9 @@ struct EffectSettingsView: View {
                         ), in: 0.5...2.0)
                         Text("速い")
                     }
+                    Text("値: \(String(format: "%.2f", effectManager.currentSettings.rate))")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
                 
                 Section(header: Text("リバーブ")) {
@@ -815,6 +767,9 @@ struct EffectSettingsView: View {
                         ), in: 0...100)
                         Text("強い")
                     }
+                    Text("値: \(Int(effectManager.currentSettings.reverb))")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
                 
                 Section(header: Text("歪み")) {
@@ -826,6 +781,9 @@ struct EffectSettingsView: View {
                         ), in: 0...100)
                         Text("強い")
                     }
+                    Text("値: \(Int(effectManager.currentSettings.distortion))")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
             }
             .navigationTitle("エフェクト調整")

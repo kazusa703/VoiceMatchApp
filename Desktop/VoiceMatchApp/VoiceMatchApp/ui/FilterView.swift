@@ -9,8 +9,37 @@ struct FilterView: View {
     @Binding var commonPointsMode: String
     @Binding var maxDistance: Double
     
-    // 自由入力フィルター
-    @State private var freeInputFilters: [String: [String]] = [:]
+    // ハッシュタグフィルター
+    @State private var hashtagFilter: [String] = []
+    @State private var hashtagInput: String = ""
+    @FocusState private var isInputFocused: Bool
+    @State private var showSuggestions = false
+    
+    // フィルタリングされたサジェスト
+    private var filteredSuggestions: [String] {
+        if hashtagInput.isEmpty {
+            return []
+        }
+        
+        let normalizedInput = hashtagInput
+            .replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: "　", with: "")
+            .replacingOccurrences(of: "#", with: "")
+            .lowercased()
+        
+        return userService.hashtagSuggestions.filter { suggestion in
+            // すでに選択済みは除外
+            guard !hashtagFilter.contains(suggestion) else { return false }
+            
+            let normalizedSuggestion = suggestion
+                .replacingOccurrences(of: " ", with: "")
+                .replacingOccurrences(of: "　", with: "")
+                .lowercased()
+            
+            return normalizedSuggestion.contains(normalizedInput) ||
+                   suggestion.lowercased().contains(hashtagInput.lowercased())
+        }.prefix(8).map { $0 }
+    }
     
     // MARK: - Computed Properties
     
@@ -29,19 +58,16 @@ struct FilterView: View {
             }
         }
         
-        // 3. 自由入力フィルター（AND検索・空白無視）
-        for (key, filterValues) in freeInputFilters {
-            if filterValues.isEmpty { continue }
+        // 3. ハッシュタグフィルター（AND検索）
+        if !hashtagFilter.isEmpty {
             users = users.filter { user in
-                let userValues = user.profileFreeItems[key] ?? []
-                // 入力されたタグすべてを含んでいるか (AND)
-                return filterValues.allSatisfy { filterValue in
-                    let normalizedFilter = filterValue
+                hashtagFilter.allSatisfy { filterTag in
+                    let normalizedFilter = filterTag
                         .replacingOccurrences(of: " ", with: "")
                         .replacingOccurrences(of: "　", with: "")
                         .lowercased()
                     
-                    return userValues.contains { userTag in
+                    return user.hashtags.contains { userTag in
                         let normalizedUserTag = userTag
                             .replacingOccurrences(of: " ", with: "")
                             .replacingOccurrences(of: "　", with: "")
@@ -53,24 +79,17 @@ struct FilterView: View {
         }
         
         // 4. 共通点フィルター
-        // Pickerの選択状態(commonPointsMode)から一時的に数値を判定して計算
         let currentMinPoints: Int
         switch commonPointsMode {
         case "1+": currentMinPoints = 1
         case "3+": currentMinPoints = 3
         case "5+": currentMinPoints = 5
-        case "ピッタリ": currentMinPoints = minCommonPoints // 将来的な拡張用
         default: currentMinPoints = 0
         }
         
         if currentMinPoints > 0 {
             users = users.filter { user in
-                let commonPoints = userService.calculateCommonPoints(with: user)
-                if commonPointsMode == "ピッタリ" {
-                    return commonPoints == currentMinPoints
-                } else {
-                    return commonPoints >= currentMinPoints
-                }
+                userService.calculateCommonPoints(with: user) >= currentMinPoints
             }
         }
         
@@ -82,7 +101,7 @@ struct FilterView: View {
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
-                // ヒット数表示（ヘッダーの下、ScrollViewの前）
+                // ヒット数表示
                 HStack {
                     Image(systemName: "person.2.fill")
                         .foregroundColor(.brandPurple)
@@ -119,21 +138,93 @@ struct FilterView: View {
                         }
                     }
                     
-                    // 自由入力フィルター
-                    Section(header: Text("趣味・好み")) {
-                        Text("入力した内容と一致するユーザーを検索します（AND検索）")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        
-                        ForEach(ProfileConstants.freeInputItems, id: \.key) { itemDef in
-                            FreeInputFilterRow(
-                                itemDef: itemDef,
-                                selectedValues: Binding(
-                                    get: { freeInputFilters[itemDef.key] ?? [] },
-                                    set: { freeInputFilters[itemDef.key] = $0 }
-                                ),
-                                suggestions: userService.getSuggestionsForKey(itemDef.key)
-                            )
+                    // ハッシュタグフィルター
+                    Section(header: Text("ハッシュタグ")) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            // 確定済みタグ
+                            if !hashtagFilter.isEmpty {
+                                FlowLayout(spacing: 8) {
+                                    ForEach(hashtagFilter, id: \.self) { tag in
+                                        FilterConfirmedChip(text: tag) {
+                                            hashtagFilter.removeAll { $0 == tag }
+                                        }
+                                    }
+                                }
+                                .padding(.vertical, 4)
+                            }
+                            
+                            // 入力欄（FlowLayoutの外）
+                            HStack(spacing: 8) {
+                                Text("#")
+                                    .font(.title3)
+                                    .fontWeight(.bold)
+                                    .foregroundColor(.brandPurple)
+                                
+                                TextField("タグを入力（例: 映画）", text: $hashtagInput)
+                                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                                    .focused($isInputFocused)
+                                    .onSubmit {
+                                        addHashtagFilter()
+                                    }
+                                
+                                Button(action: addHashtagFilter) {
+                                    Text("確定")
+                                        .font(.subheadline)
+                                        .fontWeight(.bold)
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, 16)
+                                        .padding(.vertical, 10)
+                                        .background(hashtagInput.trimmingCharacters(in: .whitespaces).isEmpty ? Color.gray : Color.green)
+                                        .cornerRadius(10)
+                                }
+                                .disabled(hashtagInput.trimmingCharacters(in: .whitespaces).isEmpty)
+                            }
+                            
+                            // サジェストリスト
+                            if showSuggestions && isInputFocused && !filteredSuggestions.isEmpty {
+                                VStack(alignment: .leading, spacing: 0) {
+                                    Text("他のユーザーが使っているタグ")
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                        .padding(.horizontal, 12)
+                                        .padding(.top, 8)
+                                    
+                                    ForEach(filteredSuggestions, id: \.self) { suggestion in
+                                        Button(action: {
+                                            addSuggestion(suggestion)
+                                        }) {
+                                            HStack {
+                                                highlightedText(suggestion: suggestion, input: hashtagInput)
+                                                Spacer()
+                                                Text("タップで追加")
+                                                    .font(.caption2)
+                                                    .foregroundColor(.secondary)
+                                            }
+                                            .padding(.horizontal, 12)
+                                            .padding(.vertical, 10)
+                                            .background(Color.white)
+                                        }
+                                        
+                                        if suggestion != filteredSuggestions.last {
+                                            Divider()
+                                        }
+                                    }
+                                }
+                                .background(Color.white)
+                                .cornerRadius(8)
+                                .shadow(color: .black.opacity(0.1), radius: 4, x: 0, y: 2)
+                            }
+                            
+                            // ヒント
+                            if hashtagInput.isEmpty {
+                                Text("入力したタグをすべて含むユーザーを検索します")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            } else {
+                                Text("「確定」を押すか、Enterキーでタグを追加")
+                                    .font(.caption2)
+                                    .foregroundColor(.orange)
+                            }
                         }
                     }
                     
@@ -153,10 +244,11 @@ struct FilterView: View {
                         Button(action: resetFilters) {
                             HStack {
                                 Spacer()
+                                Image(systemName: "arrow.counterclockwise")
                                 Text("フィルターをリセット")
-                                    .foregroundColor(.red)
                                 Spacer()
                             }
+                            .foregroundColor(.red)
                         }
                     }
                 }
@@ -177,14 +269,71 @@ struct FilterView: View {
             }
             .onAppear {
                 // UserServiceから保存済みのフィルターを読み込み
-                freeInputFilters = userService.freeInputFilters
+                hashtagFilter = userService.hashtagFilter
             }
+            .onChange(of: hashtagInput) { newValue in
+                showSuggestions = !newValue.isEmpty && !filteredSuggestions.isEmpty
+            }
+        }
+    }
+    
+    // 入力文字をハイライト表示
+    @ViewBuilder
+    private func highlightedText(suggestion: String, input: String) -> some View {
+        let normalizedInput = input
+            .replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: "　", with: "")
+            .replacingOccurrences(of: "#", with: "")
+            .lowercased()
+        
+        let normalizedSuggestion = suggestion
+            .replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: "　", with: "")
+            .lowercased()
+        
+        HStack(spacing: 2) {
+            Text("#")
+                .foregroundColor(.brandPurple)
+            
+            if normalizedSuggestion.contains(normalizedInput) {
+                Text(suggestion)
+                    .foregroundColor(.primary)
+                    .fontWeight(.medium)
+            } else {
+                Text(suggestion)
+                    .foregroundColor(.secondary)
+            }
+        }
+    }
+    
+    private func addHashtagFilter() {
+        let trimmed = hashtagInput
+            .trimmingCharacters(in: .whitespaces)
+            .replacingOccurrences(of: "#", with: "")
+        
+        if !trimmed.isEmpty && !hashtagFilter.contains(trimmed) {
+            hashtagFilter.append(trimmed)
+            hashtagInput = ""
+            showSuggestions = false
+            // フォーカスを維持して連続入力を可能に
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                isInputFocused = true
+            }
+        }
+    }
+    
+    private func addSuggestion(_ suggestion: String) {
+        if !hashtagFilter.contains(suggestion) {
+            hashtagFilter.append(suggestion)
+            hashtagInput = ""
+            showSuggestions = false
         }
     }
     
     private func resetFilters() {
         filterConditions = [:]
-        freeInputFilters = [:]
+        hashtagFilter = []
+        hashtagInput = ""
         commonPointsMode = "none"
         minCommonPoints = 0
         maxDistance = 100
@@ -199,171 +348,31 @@ struct FilterView: View {
         default: minCommonPoints = 0
         }
         
-        // UserServiceに自由入力フィルターを保存
-        userService.freeInputFilters = freeInputFilters
+        // UserServiceにハッシュタグフィルターを保存
+        userService.hashtagFilter = hashtagFilter
     }
 }
 
-// MARK: - 自由入力フィルター行
-
-struct FreeInputFilterRow: View {
-    let itemDef: ProfileItemDefinition
-    @Binding var selectedValues: [String]
-    let suggestions: [String]
-    
-    @State private var inputText = ""
-    @State private var showSuggestions = false
-    @FocusState private var isFocused: Bool
-    
-    // フィルタリングされたサジェスト（空白を無視して部分一致）
-    private var filteredSuggestions: [String] {
-        if inputText.isEmpty {
-            return []
-        }
-        
-        // 入力から空白を除去
-        let normalizedInput = inputText
-            .replacingOccurrences(of: " ", with: "")
-            .replacingOccurrences(of: "　", with: "") // 全角空白も
-            .lowercased()
-        
-        return suggestions.filter { suggestion in
-            // すでに選択済みは除外
-            guard !selectedValues.contains(suggestion) else { return false }
-            
-            // サジェストから空白を除去
-            let normalizedSuggestion = suggestion
-                .replacingOccurrences(of: " ", with: "")
-                .replacingOccurrences(of: "　", with: "")
-                .lowercased()
-            
-            // 空白除去版で部分一致チェック OR 通常の部分一致
-            return normalizedSuggestion.contains(normalizedInput) ||
-                   suggestion.lowercased().contains(inputText.lowercased())
-        }.prefix(5).map { $0 }
-    }
+// MARK: - フィルター用確定済みハッシュタグチップ
+struct FilterConfirmedChip: View {
+    let text: String
+    var onRemove: () -> Void
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(itemDef.displayName)
+        HStack(spacing: 4) {
+            Text("#\(text)")
                 .font(.subheadline)
                 .fontWeight(.medium)
             
-            // 選択済みタグ
-            if !selectedValues.isEmpty {
-                FlowLayout(spacing: 8) {
-                    ForEach(selectedValues, id: \.self) { value in
-                        HStack(spacing: 4) {
-                            Text(value)
-                                .font(.caption)
-                            
-                            Button(action: {
-                                selectedValues.removeAll { $0 == value }
-                            }) {
-                                Image(systemName: "xmark.circle.fill")
-                                    .font(.caption)
-                            }
-                        }
-                        .foregroundColor(.brandPurple)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(Color.brandPurple.opacity(0.1))
-                        .cornerRadius(15)
-                    }
-                }
-            }
-            
-            // 入力欄
-            ZStack(alignment: .topLeading) {
-                VStack(spacing: 0) {
-                    HStack {
-                        TextField(itemDef.placeholder, text: $inputText)
-                            .textFieldStyle(RoundedBorderTextFieldStyle())
-                            .focused($isFocused)
-                            .onChange(of: inputText) { _ in
-                                showSuggestions = !inputText.isEmpty && !filteredSuggestions.isEmpty
-                            }
-                            .onSubmit {
-                                addValue(inputText)
-                            }
-                        
-                        Button(action: {
-                            addValue(inputText)
-                        }) {
-                            Image(systemName: "plus.circle.fill")
-                                .foregroundColor(.brandPurple)
-                                .font(.title3)
-                        }
-                        .disabled(inputText.trimmingCharacters(in: .whitespaces).isEmpty)
-                    }
-                    
-                    // サジェストリスト
-                    if showSuggestions && isFocused {
-                        VStack(alignment: .leading, spacing: 0) {
-                            ForEach(filteredSuggestions, id: \.self) { suggestion in
-                                Button(action: {
-                                    addValue(suggestion)
-                                }) {
-                                    HStack {
-                                        // ハイライト表示
-                                        highlightedText(suggestion: suggestion, input: inputText)
-                                        Spacer()
-                                    }
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 10)
-                                    .background(Color.white)
-                                }
-                                
-                                if suggestion != filteredSuggestions.last {
-                                    Divider()
-                                }
-                            }
-                        }
-                        .background(Color.white)
-                        .cornerRadius(8)
-                        .shadow(color: .black.opacity(0.1), radius: 4, x: 0, y: 2)
-                        .padding(.top, 4)
-                    }
-                }
+            Button(action: onRemove) {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.caption)
             }
         }
-        .padding(.vertical, 4)
-    }
-    
-    // 入力文字をハイライト表示（一致度に応じてスタイル変更）
-    @ViewBuilder
-    private func highlightedText(suggestion: String, input: String) -> some View {
-        let normalizedInput = input
-            .replacingOccurrences(of: " ", with: "")
-            .replacingOccurrences(of: "　", with: "")
-            .lowercased()
-        
-        let normalizedSuggestion = suggestion
-            .replacingOccurrences(of: " ", with: "")
-            .replacingOccurrences(of: "　", with: "")
-            .lowercased()
-        
-        // マッチしている場合は太字で表示
-        if normalizedSuggestion.contains(normalizedInput) {
-            HStack(spacing: 0) {
-                Text(suggestion)
-                    .foregroundColor(.primary)
-                    .fontWeight(.medium)
-            }
-        } else {
-            HStack(spacing: 0) {
-                Text(suggestion)
-                    .foregroundColor(.secondary)
-            }
-        }
-    }
-    
-    private func addValue(_ value: String) {
-        let trimmed = value.trimmingCharacters(in: .whitespaces)
-        if !trimmed.isEmpty && !selectedValues.contains(trimmed) {
-            selectedValues.append(trimmed)
-            inputText = ""
-            showSuggestions = false
-        }
+        .foregroundColor(.white)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color.brandPurple)
+        .cornerRadius(20)
     }
 }

@@ -47,6 +47,26 @@ struct DiscoveryView: View {
             }
         }
         
+        // ハッシュタグフィルター（AND検索）
+        if !userService.hashtagFilter.isEmpty {
+            users = users.filter { user in
+                userService.hashtagFilter.allSatisfy { filterTag in
+                    let normalizedFilter = filterTag
+                        .replacingOccurrences(of: " ", with: "")
+                        .replacingOccurrences(of: "　", with: "")
+                        .lowercased()
+                    
+                    return user.hashtags.contains { userTag in
+                        let normalizedUserTag = userTag
+                            .replacingOccurrences(of: " ", with: "")
+                            .replacingOccurrences(of: "　", with: "")
+                            .lowercased()
+                        return normalizedUserTag.contains(normalizedFilter)
+                    }
+                }
+            }
+        }
+        
         // 共通点フィルター
         if commonPointsMode != "none" && minCommonPoints > 0 {
             users = users.filter { user in
@@ -94,8 +114,18 @@ struct DiscoveryView: View {
                         Button(action: {
                             showFilter = true
                         }) {
-                            Image(systemName: "slider.horizontal.3")
-                                .foregroundColor(.brandPurple)
+                            ZStack(alignment: .topTrailing) {
+                                Image(systemName: "slider.horizontal.3")
+                                    .foregroundColor(.brandPurple)
+                                
+                                // フィルターがアクティブな場合はバッジ表示
+                                if !userService.hashtagFilter.isEmpty || !filterConditions.isEmpty || commonPointsMode != "none" {
+                                    Circle()
+                                        .fill(Color.red)
+                                        .frame(width: 8, height: 8)
+                                        .offset(x: 4, y: -4)
+                                }
+                            }
                         }
                         
                         // 戻るボタン
@@ -167,6 +197,21 @@ struct DiscoveryView: View {
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
             
+            // フィルターが設定されている場合
+            if !userService.hashtagFilter.isEmpty || !filterConditions.isEmpty || commonPointsMode != "none" {
+                Button(action: {
+                    showFilter = true
+                }) {
+                    HStack {
+                        Image(systemName: "slider.horizontal.3")
+                        Text("フィルターを変更")
+                    }
+                    .font(.caption)
+                    .foregroundColor(.brandPurple)
+                }
+                .padding(.top, 5)
+            }
+            
             if !showLikedUsers {
                 Button(action: {
                     showLikedUsers = true
@@ -199,6 +244,21 @@ struct DiscoveryView: View {
                 }
                 
                 Spacer()
+                
+                // フィルター表示
+                if !userService.hashtagFilter.isEmpty {
+                    HStack(spacing: 4) {
+                        Image(systemName: "number")
+                            .font(.caption2)
+                        Text("\(userService.hashtagFilter.count)タグ")
+                            .font(.caption2)
+                    }
+                    .foregroundColor(.brandPurple)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.brandPurple.opacity(0.1))
+                    .cornerRadius(10)
+                }
                 
                 if showLikedUsers {
                     HStack(spacing: 4) {
@@ -254,6 +314,27 @@ struct DiscoveryView: View {
                                 .foregroundColor(.primary)
                             
                             CommonPointsBadge(count: userService.calculateCommonPoints(with: user))
+                            
+                            // 共通ハッシュタグを表示（最大3つ）
+                            if let myHashtags = userService.currentUserProfile?.hashtags {
+                                let commonTags = user.hashtags.filter { tag in
+                                    myHashtags.contains { $0.lowercased() == tag.lowercased() }
+                                }.prefix(3)
+                                
+                                if !commonTags.isEmpty {
+                                    HStack(spacing: 6) {
+                                        ForEach(Array(commonTags), id: \.self) { tag in
+                                            Text("#\(tag)")
+                                                .font(.caption2)
+                                                .foregroundColor(.white)
+                                                .padding(.horizontal, 8)
+                                                .padding(.vertical, 4)
+                                                .background(Color.brandPurple)
+                                                .cornerRadius(10)
+                                        }
+                                    }
+                                }
+                            }
                             
                             if let introVoice = user.voiceProfiles["introduction"] ?? user.voiceProfiles["naturalVoice"] {
                                 VoicePlayButton(
@@ -334,6 +415,7 @@ struct DiscoveryView: View {
         previousUser = nil
         
         Task {
+            await userService.fetchHashtagSuggestions()
             await userService.fetchUsersForDiscovery()
             isLoading = false
         }
@@ -419,6 +501,7 @@ struct DiscoveryView: View {
         }
     }
 }
+
 
 // MARK: - Voice Play Button
 

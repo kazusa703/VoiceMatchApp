@@ -12,50 +12,58 @@ class UserService: ObservableObject {
     @Published var discoveryUsers: [UserProfile] = []
     @Published var receivedLikes: [Like] = []
     
-    // 自由入力項目のサジェスト用キャッシュ
-    @Published var suggestionsCache: [String: [String]] = [:]
+    // ハッシュタグサジェスト用キャッシュ
+    @Published var hashtagSuggestions: [String] = []
     
-    // 自由入力フィルター
+    // ハッシュタグフィルター
+    var hashtagFilter: [String] = []
+    
+    // 旧形式との互換性（使用しない場合も残す）
     var freeInputFilters: [String: [String]] = [:]
+    var suggestionsCache: [String: [String]] = [:]
     
     private let db = Firestore.firestore()
     private let storage = Storage.storage()
     
-    // MARK: - サジェスト取得
+    // MARK: - ハッシュタグサジェスト取得
     
-    func getSuggestionsForKey(_ key: String) -> [String] {
-        return suggestionsCache[key] ?? []
-    }
-    
-    func fetchSuggestions() async {
-        // 全ユーザーの自由入力項目を収集してサジェスト用にキャッシュ
+    func fetchHashtagSuggestions() async {
+        // 全ユーザーのハッシュタグを収集してサジェスト用にキャッシュ
         do {
             let snapshot = try await db.collection("users")
                 .limit(to: 500)
                 .getDocuments()
             
-            var allSuggestions: [String: Set<String>] = [:]
+            var allHashtags: Set<String> = []
             
             for doc in snapshot.documents {
                 if let user = try? doc.data(as: UserProfile.self) {
-                    for (key, values) in user.profileFreeItems {
-                        if allSuggestions[key] == nil {
-                            allSuggestions[key] = Set<String>()
-                        }
-                        allSuggestions[key]?.formUnion(values)
+                    allHashtags.formUnion(user.hashtags)
+                    
+                    // 旧形式のデータも収集（互換性のため）
+                    for (_, values) in user.profileFreeItems {
+                        allHashtags.formUnion(values)
                     }
                 }
             }
             
-            // Setを配列に変換してキャッシュ
-            for (key, values) in allSuggestions {
-                suggestionsCache[key] = Array(values).sorted()
-            }
+            // 配列に変換してキャッシュ（ソート済み）
+            self.hashtagSuggestions = allHashtags.sorted()
+            print("🏷️ ハッシュタグサジェスト取得完了: \(self.hashtagSuggestions.count)件")
             
-            print("📝 サジェストキャッシュ更新完了: \(suggestionsCache.keys.count) カテゴリ")
         } catch {
-            print("サジェスト取得エラー: \(error)")
+            print("🏷️ ハッシュタグサジェスト取得エラー: \(error)")
         }
+    }
+    
+    // 旧API互換性のため残す
+    func getSuggestionsForKey(_ key: String) -> [String] {
+        return suggestionsCache[key] ?? []
+    }
+    
+    func fetchSuggestions() async {
+        // ハッシュタグ形式と統合
+        await fetchHashtagSuggestions()
     }
     
     // MARK: - いいね制限
@@ -193,7 +201,6 @@ class UserService: ObservableObject {
             currentUserProfile?.matchedUserIDs.append(fromUserID)
             currentUserProfile?.receivedLikeUserIDs.removeAll { $0 == fromUserID }
             
-            // いいねリストからも削除
             receivedLikes.removeAll { $0.fromUserID == fromUserID }
             
             return match
@@ -215,8 +222,6 @@ class UserService: ObservableObject {
             ])
             
             currentUserProfile?.receivedLikeUserIDs.removeAll { $0 == fromUserID }
-            
-            // いいねリストからも削除
             receivedLikes.removeAll { $0.fromUserID == fromUserID }
         } catch {
             print("いいね拒否エラー: \(error)")
@@ -252,11 +257,6 @@ class UserService: ObservableObject {
             try docRef.setData(from: newUser)
             self.currentUserProfile = newUser
         }
-        
-        // サジェスト用データを非同期で取得
-        Task {
-            await fetchSuggestions()
-        }
     }
     
     func fetchOtherUserProfile(uid: String) async throws -> UserProfile {
@@ -269,11 +269,6 @@ class UserService: ObservableObject {
     func updateUserProfile(profile: UserProfile) async throws {
         try db.collection("users").document(profile.uid).setData(from: profile, merge: true)
         self.currentUserProfile = profile
-        
-        // サジェストキャッシュを更新
-        Task {
-            await fetchSuggestions()
-        }
     }
     
     // MARK: - アイコン画像アップロード
@@ -334,12 +329,12 @@ class UserService: ObservableObject {
     // MARK: - 探す用ユーザー取得（ゲストモード対応）
     
     func fetchUsersForDiscovery() async {
-        // ゲストモードの場合は myUID が nil でも OK
         let myUID = currentUserProfile?.uid
         let isGuestMode = (myUID == nil)
         
         print("🔍 ========== 探すユーザー取得開始 ==========")
         print("🔍 モード: \(isGuestMode ? "ゲスト" : "通常")")
+        print("🔍 ハッシュタグフィルター: \(hashtagFilter)")
         
         do {
             let snapshot = try await db.collection("users")
@@ -361,9 +356,8 @@ class UserService: ObservableObject {
             for user in allUsers {
                 let hasNaturalVoice = user.hasNaturalVoice
                 
-                // ゲストモードの場合は自分チェック・ブロックチェック等をスキップ
                 if isGuestMode {
-                    // 地声があるユーザーのみ表示
+                    // ゲストモードは地声があるユーザーのみ
                     if hasNaturalVoice {
                         filteredUsers.append(user)
                     }
@@ -379,13 +373,36 @@ class UserService: ObservableObject {
                         continue
                     }
                     
-                    // 自由入力フィルター（AND検索）
+                    // ハッシュタグフィルター（AND検索）
+                    var matchesHashtagFilter = true
+                    if !hashtagFilter.isEmpty {
+                        for filterTag in hashtagFilter {
+                            let normalizedFilter = filterTag
+                                .replacingOccurrences(of: " ", with: "")
+                                .replacingOccurrences(of: "　", with: "")
+                                .lowercased()
+                            
+                            let found = user.hashtags.contains { userTag in
+                                let normalizedUserTag = userTag
+                                    .replacingOccurrences(of: " ", with: "")
+                                    .replacingOccurrences(of: "　", with: "")
+                                    .lowercased()
+                                return normalizedUserTag.contains(normalizedFilter)
+                            }
+                            
+                            if !found {
+                                matchesHashtagFilter = false
+                                break
+                            }
+                        }
+                    }
+                    
+                    // 旧形式フィルター（互換性のため）
                     var matchesFreeInputFilters = true
                     for (key, filterValues) in freeInputFilters {
                         if filterValues.isEmpty { continue }
                         
                         let userValues = user.profileFreeItems[key] ?? []
-                        // フィルターの全ての値がユーザーの値に含まれている必要がある
                         for filterValue in filterValues {
                             if !userValues.contains(where: { $0.lowercased().contains(filterValue.lowercased()) }) {
                                 matchesFreeInputFilters = false
@@ -395,7 +412,7 @@ class UserService: ObservableObject {
                         if !matchesFreeInputFilters { break }
                     }
                     
-                    if matchesFreeInputFilters {
+                    if matchesHashtagFilter && matchesFreeInputFilters {
                         filteredUsers.append(user)
                     }
                 }
@@ -423,10 +440,16 @@ class UserService: ObservableObject {
             }
         }
         
-        // 自由入力項目の共通点
+        // ハッシュタグの共通点
+        let myHashtags = Set(myProfile.hashtags.map { $0.lowercased() })
+        let userHashtags = Set(user.hashtags.map { $0.lowercased() })
+        let commonHashtags = myHashtags.intersection(userHashtags)
+        count += commonHashtags.count
+        
+        // 旧形式の共通点（互換性のため）
         for (key, myValues) in myProfile.profileFreeItems {
             if let userValues = user.profileFreeItems[key] {
-                let common = Set(myValues).intersection(Set(userValues))
+                let common = Set(myValues.map { $0.lowercased() }).intersection(Set(userValues.map { $0.lowercased() }))
                 count += common.count
             }
         }
@@ -472,6 +495,25 @@ class UserService: ObservableObject {
         } catch {
             print("ブロックエラー: \(error)")
         }
+    }
+    
+    func unblockUser(targetUID: String) async {
+        guard let uid = currentUserProfile?.uid else { return }
+        do {
+            try await db.collection("users").document(uid).updateData([
+                "blockedUserIDs": FieldValue.arrayRemove([targetUID])
+            ])
+            currentUserProfile?.blockedUserIDs.removeAll { $0 == targetUID }
+        } catch {
+            print("ブロック解除エラー: \(error)")
+        }
+    }
+    
+    func getBlockedUsers() async -> [UserProfile] {
+        guard let blockedIDs = currentUserProfile?.blockedUserIDs, !blockedIDs.isEmpty else {
+            return []
+        }
+        return await fetchUsersByIDs(uids: blockedIDs)
     }
     
     // MARK: - 通報
@@ -545,101 +587,95 @@ class UserService: ObservableObject {
     
     // MARK: - アカウント削除（完全削除）
     
-    // MARK: - アカウント削除（完全削除）
+    func deleteUserAccount(uid: String) async throws {
+        print("🗑️ [deleteUserAccount] アカウント削除開始: \(uid)")
         
-        func deleteUserAccount(uid: String) async throws {
-            print("🗑️ [deleteUserAccount] アカウント削除開始: \(uid)")
-            
-            // 1. ユーザードキュメントを削除
-            print("🗑️ [deleteUserAccount] ユーザードキュメント削除中...")
-            try await db.collection("users").document(uid).delete()
-            
-            // 2. アイコン画像を削除
-            print("🗑️ [deleteUserAccount] アイコン画像削除中...")
-            try? await storage.reference().child("icons/\(uid).jpg").delete()
-            
-            // 3. ボイスプロフィールを削除
-            print("🗑️ [deleteUserAccount] ボイスプロフィール削除中...")
-            for item in VoiceProfileConstants.items {
-                try? await storage.reference().child("voice_profiles/\(uid)/\(item.key).m4a").delete()
-            }
-            
-            // 4. 送信したいいねを削除
-            print("🗑️ [deleteUserAccount] 送信したいいね削除中...")
-            // 変数名を変更: sentLikes -> sentLikesSnapshot
-            let sentLikesSnapshot = try await db.collection("likes")
-                .whereField("fromUserID", isEqualTo: uid)
-                .getDocuments()
-            for doc in sentLikesSnapshot.documents {
-                try? await doc.reference.delete()
-            }
-            
-            // 5. 受信したいいねを削除
-            print("🗑️ [deleteUserAccount] 受信したいいね削除中...")
-            // 変数名を変更: receivedLikes -> receivedLikesSnapshot
-            // 修正理由: クラスプロパティの self.receivedLikes と名前が被り、最後の初期化でエラーになるため
-            let receivedLikesSnapshot = try await db.collection("likes")
-                .whereField("toUserID", isEqualTo: uid)
-                .getDocuments()
-            for doc in receivedLikesSnapshot.documents {
-                try? await doc.reference.delete()
-            }
-            
-            // 6. マッチとメッセージを削除
-            print("🗑️ [deleteUserAccount] マッチとメッセージ削除中...")
-            let matches1 = try await db.collection("matches")
-                .whereField("user1ID", isEqualTo: uid)
-                .getDocuments()
-            let matches2 = try await db.collection("matches")
-                .whereField("user2ID", isEqualTo: uid)
-                .getDocuments()
-            
-            for doc in matches1.documents + matches2.documents {
-                let matchID = doc.documentID
-                
-                // マッチ内のメッセージを削除
-                let messages = try await db.collection("matches").document(matchID)
-                    .collection("messages").getDocuments()
-                for msgDoc in messages.documents {
-                    // メッセージの音声ファイルを削除
-                    if let audioURL = msgDoc.data()["audioURL"] as? String,
-                       let url = URL(string: audioURL) {
-                        // Storage参照を取得して削除
-                        let pathComponents = url.pathComponents
-                        if let chatVoicesIndex = pathComponents.firstIndex(of: "chat_voices") {
-                            let storagePath = pathComponents[chatVoicesIndex...].joined(separator: "/")
-                            try? await storage.reference().child(storagePath).delete()
-                        }
-                    }
-                    try? await msgDoc.reference.delete()
-                }
-                
-                // マッチドキュメントを削除
-                try? await doc.reference.delete()
-            }
-            
-            // 7. 通報を削除（自分が通報したもの）
-            print("🗑️ [deleteUserAccount] 通報削除中...")
-            let reportsSnapshot = try await db.collection("reports")
-                .whereField("reporterID", isEqualTo: uid)
-                .getDocuments()
-            for doc in reportsSnapshot.documents {
-                try? await doc.reference.delete()
-            }
-            
-            // 8. 他ユーザーの配列から自分を削除
-            print("🗑️ [deleteUserAccount] 他ユーザーの参照削除中...")
-            // ローカルの状態をクリア
-            
-            print("✅ [deleteUserAccount] アカウント削除完了")
-            
-            // メインスレッドで更新するためにTaskで囲むか、MainActor内で実行
-            await MainActor.run {
-                self.currentUserProfile = nil
-                self.discoveryUsers = []
-                self.receivedLikes = [] // ここでのエラーが解消されます
-            }
+        // 1. ユーザードキュメントを削除
+        try await db.collection("users").document(uid).delete()
+        
+        // 2. アイコン画像を削除
+        try? await storage.reference().child("icons/\(uid).jpg").delete()
+        
+        // 3. ボイスプロフィールを削除
+        for item in VoiceProfileConstants.items {
+            try? await storage.reference().child("voice_profiles/\(uid)/\(item.key).m4a").delete()
         }
+        
+        // 4. 送信したいいねを削除
+        let sentLikes = try await db.collection("likes")
+            .whereField("fromUserID", isEqualTo: uid)
+            .getDocuments()
+        for doc in sentLikes.documents {
+            try? await doc.reference.delete()
+        }
+        
+        // 5. 受信したいいねを削除
+        let receivedLikesQuery = try await db.collection("likes")
+            .whereField("toUserID", isEqualTo: uid)
+            .getDocuments()
+        for doc in receivedLikesQuery.documents {
+            try? await doc.reference.delete()
+        }
+        
+        // 6. マッチとメッセージを削除
+        let matches1 = try await db.collection("matches")
+            .whereField("user1ID", isEqualTo: uid)
+            .getDocuments()
+        let matches2 = try await db.collection("matches")
+            .whereField("user2ID", isEqualTo: uid)
+            .getDocuments()
+        
+        for doc in matches1.documents + matches2.documents {
+            let matchID = doc.documentID
+            
+            // マッチ内のメッセージを削除（音声ファイルも）
+            let messages = try await db.collection("matches").document(matchID)
+                .collection("messages").getDocuments()
+            for msgDoc in messages.documents {
+                // 音声URLがあればStorageからも削除
+                if let msg = try? msgDoc.data(as: VoiceMessage.self),
+                   let audioPath = extractStoragePath(from: msg.audioURL) {
+                    try? await storage.reference().child(audioPath).delete()
+                }
+                try? await msgDoc.reference.delete()
+            }
+            
+            // マッチドキュメントを削除
+            try? await doc.reference.delete()
+        }
+        
+        // 7. 通報を削除（自分が通報したもの）
+        let reports = try await db.collection("reports")
+            .whereField("reporterID", isEqualTo: uid)
+            .getDocuments()
+        for doc in reports.documents {
+            try? await doc.reference.delete()
+        }
+        
+        print("✅ [deleteUserAccount] アカウント削除完了")
+        
+        // ローカル状態をクリア
+        currentUserProfile = nil
+        discoveryUsers = []
+        receivedLikes = []
+    }
+    
+    // StorageのURLからパスを抽出
+    private func extractStoragePath(from urlString: String) -> String? {
+        guard let url = URL(string: urlString),
+              url.host?.contains("firebasestorage") == true else {
+            return nil
+        }
+        
+        // Firebase Storage URLからパスを抽出
+        // 例: https://firebasestorage.googleapis.com/v0/b/bucket/o/path%2Fto%2Ffile?...
+        if let range = urlString.range(of: "/o/"),
+           let endRange = urlString.range(of: "?") {
+            let encodedPath = String(urlString[range.upperBound..<endRange.lowerBound])
+            return encodedPath.removingPercentEncoding
+        }
+        return nil
+    }
     
     // MARK: - 管理者機能
     
