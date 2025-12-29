@@ -169,6 +169,52 @@ class UserService: ObservableObject {
         }
     }
     
+    // MARK: - ボイス付きいいね送信
+    
+    func sendVoiceLike(toUserID: String, voiceURL: URL, duration: Double) async -> Bool {
+        guard let fromUserID = currentUserProfile?.uid else { return false }
+        guard canSendLike() else { return false }
+        
+        do {
+            // ボイスファイルをStorageにアップロード
+            let audioData = try Data(contentsOf: voiceURL)
+            let voicePath = "voice_likes/\(fromUserID)_\(toUserID).m4a"
+            let ref = storage.reference().child(voicePath)
+            _ = try await ref.putDataAsync(audioData)
+            let downloadURL = try await ref.downloadURL()
+            
+            // Likeドキュメントを作成（ボイス情報付き）
+            let like = Like(
+                fromUserID: fromUserID,
+                toUserID: toUserID,
+                createdAt: Date(),
+                status: .pending,
+                voiceURL: downloadURL.absoluteString,
+                voiceDuration: duration
+            )
+            
+            let likeRef = db.collection("likes").document("\(fromUserID)_\(toUserID)")
+            try likeRef.setData(from: like)
+            
+            try await db.collection("users").document(fromUserID).updateData([
+                "likedUserIDs": FieldValue.arrayUnion([toUserID])
+            ])
+            
+            try await db.collection("users").document(toUserID).updateData([
+                "receivedLikeUserIDs": FieldValue.arrayUnion([fromUserID])
+            ])
+            
+            await incrementLikeCount()
+            currentUserProfile?.likedUserIDs.append(toUserID)
+            
+            print("✅ ボイス付きいいね送信完了")
+            return true
+        } catch {
+            print("ボイス付きいいね送信エラー: \(error)")
+            return false
+        }
+    }
+    
     // MARK: - いいね承認・拒否
     
     func acceptLike(fromUserID: String) async -> UserMatch? {

@@ -98,9 +98,9 @@ struct ProfileEditView: View {
                         }
                     }
                     
-                    // 5. ハッシュタグ
-                    Section(header: Text("ハッシュタグ")) {
-                        HashtagInputView(hashtags: $editingUser.hashtags)
+                    // 5. ハッシュタグ（カテゴリ別選択）
+                    Section(header: Text("興味・関心")) {
+                        HashtagEditSection(selectedTags: $editingUser.hashtags)
                     }
                 }
                 
@@ -181,108 +181,6 @@ struct ProfileEditView: View {
     }
 }
 
-// MARK: - ハッシュタグ入力ビュー
-struct HashtagInputView: View {
-    @Binding var hashtags: [String]
-    @State private var inputText = ""
-    @FocusState private var isInputFocused: Bool
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // 説明
-            Text("興味・趣味・好きなものなどをハッシュタグで入力してください（最大100個）")
-                .font(.caption)
-                .foregroundColor(.secondary)
-            
-            // 確定済みハッシュタグ
-            if !hashtags.isEmpty {
-                FlowLayout(spacing: 8) {
-                    ForEach(hashtags, id: \.self) { tag in
-                        ConfirmedHashtagChip(text: tag) {
-                            hashtags.removeAll { $0 == tag }
-                        }
-                    }
-                }
-                .padding(.vertical, 4)
-            }
-            
-            // 入力欄（FlowLayoutの外）
-            if hashtags.count < UserProfile.maxHashtags {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 8) {
-                        // #マーク
-                        Text("#")
-                            .font(.title3)
-                            .fontWeight(.bold)
-                            .foregroundColor(.brandPurple)
-                        
-                        // テキスト入力
-                        TextField("タグを入力（例: Netflix）", text: $inputText)
-                            .textFieldStyle(RoundedBorderTextFieldStyle())
-                            .focused($isInputFocused)
-                            .onSubmit {
-                                confirmHashtag()
-                            }
-                        
-                        // 確定ボタン
-                        Button(action: confirmHashtag) {
-                            Text("確定")
-                                .font(.subheadline)
-                                .fontWeight(.bold)
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 10)
-                                .background(inputText.trimmingCharacters(in: .whitespaces).isEmpty ? Color.gray : Color.green)
-                                .cornerRadius(10)
-                        }
-                        .disabled(inputText.trimmingCharacters(in: .whitespaces).isEmpty)
-                    }
-                    
-                    // ヒント
-                    if inputText.isEmpty {
-                        Text("例: Netflix、アニメ、ゲーム、カフェ巡り、猫、読書")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                    } else {
-                        Text("「確定」を押すか、Enterキーでタグを追加")
-                            .font(.caption2)
-                            .foregroundColor(.orange)
-                    }
-                }
-            }
-            
-            // カウンター
-            HStack {
-                Text("\(hashtags.count) / \(UserProfile.maxHashtags)")
-                    .font(.caption)
-                    .foregroundColor(hashtags.count >= UserProfile.maxHashtags ? .red : .secondary)
-                
-                if hashtags.count >= UserProfile.maxHashtags {
-                    Text("上限に達しました")
-                        .font(.caption)
-                        .foregroundColor(.red)
-                }
-            }
-        }
-        .padding(.vertical, 8)
-    }
-    
-    private func confirmHashtag() {
-        let trimmed = inputText
-            .trimmingCharacters(in: .whitespaces)
-            .replacingOccurrences(of: "#", with: "")
-        
-        if !trimmed.isEmpty && !hashtags.contains(trimmed) && hashtags.count < UserProfile.maxHashtags {
-            hashtags.append(trimmed)
-            inputText = ""  // 入力欄をクリア
-            // フォーカスを維持して連続入力を可能に
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                isInputFocused = true
-            }
-        }
-    }
-}
-
 // MARK: - 確定済みハッシュタグチップ（色付き）
 struct ConfirmedHashtagChip: View {
     let text: String
@@ -307,6 +205,63 @@ struct ConfirmedHashtagChip: View {
     }
 }
 
+// MARK: - ProfileWrappingHStack（List内でも動作する折り返しレイアウト）
+struct ProfileWrappingHStack<Item: Hashable, Content: View>: View {
+    let items: [Item]
+    let content: (Item) -> Content
+    
+    @State private var totalHeight: CGFloat = .zero
+    
+    var body: some View {
+        GeometryReader { geometry in
+            self.generateContent(in: geometry)
+        }
+        .frame(height: totalHeight)
+    }
+    
+    private func generateContent(in geometry: GeometryProxy) -> some View {
+        var width = CGFloat.zero
+        var height = CGFloat.zero
+        
+        return ZStack(alignment: .topLeading) {
+            ForEach(items, id: \.self) { item in
+                content(item)
+                    .padding(.trailing, 8)
+                    .padding(.bottom, 8)
+                    .alignmentGuide(.leading) { dimension in
+                        if abs(width - dimension.width) > geometry.size.width {
+                            width = 0
+                            height -= dimension.height
+                        }
+                        let result = width
+                        if item == items.last {
+                            width = 0
+                        } else {
+                            width -= dimension.width
+                        }
+                        return result
+                    }
+                    .alignmentGuide(.top) { dimension in
+                        let result = height
+                        if item == items.last {
+                            height = 0
+                        }
+                        return result
+                    }
+            }
+        }
+        .background(viewHeightReader($totalHeight))
+    }
+    
+    private func viewHeightReader(_ binding: Binding<CGFloat>) -> some View {
+        GeometryReader { geometry -> Color in
+            DispatchQueue.main.async {
+                binding.wrappedValue = geometry.size.height
+            }
+            return Color.clear
+        }
+    }
+}
 
 
 // MARK: - 選択式プロフィール行

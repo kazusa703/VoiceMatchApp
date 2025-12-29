@@ -1,170 +1,270 @@
-import Foundation
+import SwiftUI
 
-// MARK: - ハッシュタグカテゴリ定義
+// MARK: - ハッシュタグ選択ビュー（カテゴリ別）
 
-struct HashtagCategory: Identifiable {
-    let id = UUID()
-    let icon: String
-    let name: String
-    let tags: [String]
+struct HashtagSelectionView: View {
+    @Binding var selectedTags: [String]
+    @Environment(\.dismiss) var dismiss
+    
+    let minSelection = 5
+    let maxSelection = 100
+    
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 0) {
+                // ヘッダー
+                headerSection
+                
+                // カテゴリリスト
+                ScrollView {
+                    LazyVStack(spacing: 20) {
+                        ForEach(HashtagCategories.all) { category in
+                            CategorySection(
+                                category: category,
+                                selectedTags: $selectedTags,
+                                maxSelection: maxSelection
+                            )
+                        }
+                    }
+                    .padding()
+                }
+                
+                // 下部ボタン
+                bottomButton
+            }
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(action: { dismiss() }) {
+                        Image(systemName: "chevron.left")
+                            .font(.title3)
+                    }
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("スキップ") {
+                        dismiss()
+                    }
+                    .foregroundColor(.secondary)
+                }
+            }
+        }
+    }
+    
+    // MARK: - Header Section
+    
+    private var headerSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("興味関心は？")
+                .font(.title)
+                .fontWeight(.bold)
+            
+            Text("好きなことを紹介しよう。")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+    }
+    
+    // MARK: - Bottom Button
+    
+    private var bottomButton: some View {
+        VStack(spacing: 8) {
+            Divider()
+            
+            Button(action: { dismiss() }) {
+                Text("次へ \(selectedTags.count) / \(minSelection)")
+                    .font(.headline)
+                    .foregroundColor(selectedTags.count >= minSelection ? .white : .gray)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .background(
+                        selectedTags.count >= minSelection
+                            ? Color.brandPurple
+                            : Color(uiColor: .systemGray5)
+                    )
+                    .cornerRadius(30)
+            }
+            .disabled(selectedTags.count < minSelection)
+            .padding(.horizontal)
+            .padding(.bottom, 20)
+        }
+        .background(Color(uiColor: .systemBackground))
+    }
 }
 
-struct HashtagCategories {
-    static let all: [HashtagCategory] = [
-        HashtagCategory(
-            icon: "🎵",
-            name: "音楽",
-            tags: [
-                "J-POP", "K-POP", "ロック", "ポップス", "ヒップホップ",
-                "R&B", "EDM", "ジャズ", "クラシック", "アニソン",
-                "ボカロ", "バンド", "アイドル", "洋楽", "邦楽",
-                "ラップ", "レゲエ", "メタル", "パンク", "フォーク",
-                "カントリー", "ソウル", "ファンク", "テクノ", "ハウス",
-                "インディーズ", "オルタナティブ", "ラテン", "ゴスペル"
-            ]
-        ),
-        HashtagCategory(
-            icon: "🍽️",
-            name: "食べ物と飲み物",
-            tags: [
-                "寿司", "焼肉", "ラーメン", "カレー", "パスタ",
-                "ピザ", "ハンバーガー", "中華料理", "韓国料理", "タイ料理",
-                "イタリアン", "フレンチ", "和食", "洋食", "スイーツ",
-                "カフェ", "居酒屋", "食べ歩き", "料理", "お菓子作り",
-                "コーヒー", "紅茶", "お酒", "ワイン", "ビール",
-                "タピオカ", "抹茶", "チョコレート", "アイス", "パン"
-            ]
-        ),
-        HashtagCategory(
-            icon: "🎬",
-            name: "映画・ドラマ",
-            tags: [
-                "映画鑑賞", "Netflix", "Amazon Prime", "Disney+", "邦画",
-                "洋画", "韓国ドラマ", "日本ドラマ", "アニメ映画", "ホラー",
-                "コメディ", "恋愛映画", "アクション", "SF", "ファンタジー",
-                "ドキュメンタリー", "ミュージカル", "スリラー", "ミステリー"
-            ]
-        ),
-        HashtagCategory(
-            icon: "📺",
-            name: "アニメ・漫画",
-            tags: [
-                "アニメ", "漫画", "ジャンプ", "マガジン", "サンデー",
-                "少女漫画", "少年漫画", "ラノベ", "なろう系", "異世界",
-                "恋愛アニメ", "バトルアニメ", "日常系", "スポーツアニメ",
-                "コスプレ", "声優", "アニメイト", "同人誌", "推し活"
-            ]
-        ),
-        HashtagCategory(
-            icon: "🎮",
-            name: "ゲーム",
-            tags: [
-                "ゲーム", "Nintendo Switch", "PlayStation", "Xbox", "PC",
-                "スマホゲーム", "ソシャゲ", "FPS", "RPG", "アクション",
-                "格ゲー", "音ゲー", "パズル", "シミュレーション", "ホラゲー",
-                "原神", "ポケモン", "スプラトゥーン", "マイクラ", "Apex",
-                "フォートナイト", "ウマ娘", "プロセカ", "あつ森", "スマブラ",
-                "eスポーツ", "ゲーム実況", "VTuber", "配信", "ボードゲーム"
-            ]
-        ),
-        HashtagCategory(
-            icon: "📚",
-            name: "読書・学習",
-            tags: [
-                "読書", "小説", "ビジネス書", "自己啓発", "歴史",
-                "心理学", "哲学", "科学", "数学", "英語",
-                "語学学習", "プログラミング", "資格勉強", "投資", "経済",
-                "政治", "法律", "医学", "教育", "文学"
-            ]
-        ),
-        HashtagCategory(
-            icon: "🏃",
-            name: "スポーツ",
-            tags: [
-                "サッカー", "野球", "バスケ", "バレーボール", "テニス",
-                "卓球", "バドミントン", "ゴルフ", "水泳", "陸上",
-                "ジム", "筋トレ", "ランニング", "ヨガ", "ダンス",
-                "格闘技", "スケボー", "サーフィン", "スノボ", "登山",
-                "キャンプ", "釣り", "サイクリング", "マラソン", "フットサル"
-            ]
-        ),
-        HashtagCategory(
-            icon: "✈️",
-            name: "旅行・お出かけ",
-            tags: [
-                "旅行", "国内旅行", "海外旅行", "温泉", "ホテル",
-                "ドライブ", "一人旅", "バックパッカー", "観光", "写真",
-                "カメラ", "インスタ映え", "ディズニー", "USJ", "テーマパーク",
-                "美術館", "博物館", "神社仏閣", "自然", "絶景"
-            ]
-        ),
-        HashtagCategory(
-            icon: "🎨",
-            name: "クリエイティブ",
-            tags: [
-                "イラスト", "絵を描く", "デザイン", "写真", "動画編集",
-                "DTM", "作曲", "歌", "楽器", "ピアノ",
-                "ギター", "ドラム", "ハンドメイド", "DIY", "陶芸",
-                "書道", "華道", "茶道", "編み物", "裁縫"
-            ]
-        ),
-        HashtagCategory(
-            icon: "💄",
-            name: "ファッション・美容",
-            tags: [
-                "ファッション", "メイク", "コスメ", "スキンケア", "ネイル",
-                "ヘアスタイル", "古着", "ストリート", "韓国ファッション", "シンプル",
-                "カジュアル", "きれいめ", "アクセサリー", "時計", "バッグ",
-                "スニーカー", "香水", "ダイエット", "美容", "エステ"
-            ]
-        ),
-        HashtagCategory(
-            icon: "🐱",
-            name: "ペット・動物",
-            tags: [
-                "猫", "犬", "うさぎ", "ハムスター", "鳥",
-                "爬虫類", "熱帯魚", "動物好き", "動物園", "水族館",
-                "ペットカフェ", "野生動物", "昆虫", "恐竜"
-            ]
-        ),
-        HashtagCategory(
-            icon: "💼",
-            name: "仕事・キャリア",
-            tags: [
-                "IT", "エンジニア", "デザイナー", "マーケティング", "営業",
-                "起業", "フリーランス", "副業", "転職", "就活",
-                "リモートワーク", "スタートアップ", "経営", "人事", "広報"
-            ]
-        ),
-        HashtagCategory(
-            icon: "🌙",
-            name: "ライフスタイル",
-            tags: [
-                "カフェ巡り", "散歩", "お酒", "夜更かし", "早起き",
-                "一人暮らし", "インテリア", "観葉植物", "掃除", "断捨離",
-                "ミニマリスト", "サウナ", "銭湯", "マッサージ", "瞑想",
-                "朝活", "夜活", "推し活", "オタク", "収集"
-            ]
-        ),
-        HashtagCategory(
-            icon: "💬",
-            name: "性格・価値観",
-            tags: [
-                "人見知り", "社交的", "インドア", "アウトドア", "のんびり",
-                "アクティブ", "真面目", "おもしろい", "優しい", "クール",
-                "ポジティブ", "マイペース", "几帳面", "大雑把", "甘えん坊",
-                "しっかり者", "天然", "ツンデレ", "ギャップ萌え"
-            ]
-        ),
-        HashtagCategory(
-            icon: "🎯",
-            name: "その他",
-            tags: [
-                "お笑い", "YouTube", "TikTok", "SNS", "占い",
-                "心理テスト", "MBTI", "星座", "血液型", "ホロスコープ",
-                "スピリチュアル", "パワースポット", "都市伝説", "謎解き", "脱出ゲーム",
-                "カラオケ", "ボウリング", "ダーツ", "ビリヤード", "麻雀"
-            ]
-        )
-    ]
+// MARK: - カテゴリセクション
+
+struct CategorySection: View {
+    let category: HashtagCategory
+    @Binding var selectedTags: [String]
+    let maxSelection: Int
+    
+    @State private var isExpanded = false
+    
+    // 初期表示数
+    private let initialDisplayCount = 7
+    
+    private var displayedTags: [String] {
+        if isExpanded {
+            return category.tags
+        } else {
+            return Array(category.tags.prefix(initialDisplayCount))
+        }
+    }
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // カテゴリヘッダー
+            HStack(spacing: 8) {
+                Text(category.icon)
+                    .font(.title2)
+                Text(category.name)
+                    .font(.headline)
+                    .fontWeight(.semibold)
+            }
+            
+            // タグ一覧
+            FlowLayout(spacing: 10) {
+                ForEach(displayedTags, id: \.self) { tag in
+                    TagButton(
+                        tag: tag,
+                        isSelected: selectedTags.contains(tag),
+                        onTap: { toggleTag(tag) }
+                    )
+                }
+            }
+            
+            // もっと見る / 表示を減らす
+            if category.tags.count > initialDisplayCount {
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        isExpanded.toggle()
+                    }
+                }) {
+                    HStack {
+                        Spacer()
+                        Text(isExpanded ? "表示を減らす" : "もっと見る")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                    }
+                    .padding(.vertical, 8)
+                }
+            }
+            
+            Divider()
+        }
+    }
+    
+    private func toggleTag(_ tag: String) {
+        if selectedTags.contains(tag) {
+            selectedTags.removeAll { $0 == tag }
+        } else if selectedTags.count < maxSelection {
+            selectedTags.append(tag)
+        }
+    }
+}
+
+// MARK: - タグボタン
+
+struct TagButton: View {
+    let tag: String
+    let isSelected: Bool
+    let onTap: () -> Void
+    
+    var body: some View {
+        Button(action: onTap) {
+            Text(tag)
+                .font(.subheadline)
+                .foregroundColor(isSelected ? .white : .primary)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(
+                    isSelected
+                        ? Color.brandPurple
+                        : Color.clear
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20)
+                        .stroke(isSelected ? Color.brandPurple : Color.gray.opacity(0.3), lineWidth: 1)
+                )
+                .cornerRadius(20)
+        }
+    }
+}
+
+// MARK: - プロフィール編集用のコンパクト版
+
+struct HashtagEditSection: View {
+    @Binding var selectedTags: [String]
+    @State private var showFullSelection = false
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // 説明
+            HStack {
+                Text("興味・関心（\(selectedTags.count)個選択中）")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                
+                Spacer()
+                
+                Button(action: { showFullSelection = true }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "plus.circle.fill")
+                        Text("編集")
+                    }
+                    .font(.subheadline)
+                    .foregroundColor(.brandPurple)
+                }
+            }
+            
+            // 選択済みタグを表示
+            if selectedTags.isEmpty {
+                Text("タップして興味を追加しましょう")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .padding(.vertical, 20)
+                    .frame(maxWidth: .infinity)
+                    .background(Color(uiColor: .systemGray6))
+                    .cornerRadius(10)
+                    .onTapGesture {
+                        showFullSelection = true
+                    }
+            } else {
+                TagDisplayFlowLayout(tags: selectedTags)
+                    .onTapGesture {
+                        showFullSelection = true
+                    }
+            }
+        }
+        .sheet(isPresented: $showFullSelection) {
+            HashtagSelectionView(selectedTags: $selectedTags)
+        }
+    }
+}
+
+// MARK: - タグ表示用FlowLayout
+
+struct TagDisplayFlowLayout: View {
+    let tags: [String]
+    
+    var body: some View {
+        FlowLayout(spacing: 8) {
+            ForEach(tags, id: \.self) { tag in
+                Text(tag)
+                    .font(.caption)
+                    .foregroundColor(.brandPurple)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Color.brandPurple.opacity(0.1))
+                    .cornerRadius(15)
+            }
+        }
+    }
 }

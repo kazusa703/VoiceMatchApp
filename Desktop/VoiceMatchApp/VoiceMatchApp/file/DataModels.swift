@@ -283,6 +283,10 @@ struct Like: Identifiable, Codable {
     var toUserID: String
     var createdAt: Date
     var status: LikeStatus
+    
+    // ボイスいいね用
+    var voiceURL: String?
+    var voiceDuration: Double?
 }
 
 enum LikeStatus: String, Codable {
